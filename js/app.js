@@ -1,7 +1,6 @@
 (()=>{
 const $=s=>document.querySelector(s);
 let level='facil',game=null,score=Number(localStorage.getItem('nexar_crossword_score')||0);
-const counts={facil:6,medio:8,pro:10};
 
 async function start(){
   $('#mensaje').textContent='Cargando preguntas…';
@@ -10,9 +9,9 @@ async function start(){
   $('#origen').textContent=isRemote
     ? `Preguntas dinámicas: ${data.source==='wikipedia-es'?'Wikipedia en español':data.source}`
     : 'Modo local: usando banco de respaldo';
-  game=Crossword.build(data.questions,counts[level]);
+  game=Crossword.build(data.questions,level);
   if(!game){$('#mensaje').textContent='No se pudo generar el crucigrama.';return;}
-  $('#mensaje').textContent='';
+  $('#mensaje').textContent=`Grilla ${game.size}×${game.size}`;
   render();
 }
 
