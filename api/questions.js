@@ -23,13 +23,15 @@ const CATEGORY_POOLS = {
     'Futbolistas de Argentina',
   ],
   pro: [
+    'Ciudades de Argentina',
+    'Ríos de Argentina',
+    'Montañas de Argentina',
     'Parques nacionales de Argentina',
     'Escritores de Argentina',
     'Cantantes de Argentina',
     'Futbolistas de Argentina',
     'Científicos de Argentina',
     'Políticos de Argentina',
-    'Localidades de Argentina',
     'Museos de Argentina',
   ],
 };
@@ -169,7 +171,7 @@ async function wikipedia(params) {
   const url = new URL(WIKIPEDIA_API);
   url.search = new URLSearchParams({ format: 'json', origin: '*', ...params }).toString();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 4500);
+  const timer = setTimeout(() => controller.abort(), 6000);
   try {
     const response = await fetch(url, {
       signal: controller.signal,
@@ -182,28 +184,25 @@ async function wikipedia(params) {
   }
 }
 
-async function getCategoryTitles(category, limit = 30) {
+// Una sola llamada por categoría: obtiene páginas y extractos juntos.
+async function getCategoryPages(category, limit = 25) {
   const data = await wikipedia({
     action: 'query',
-    list: 'categorymembers',
-    cmtitle: `Categoría:${category}`,
-    cmtype: 'page',
-    cmlimit: String(limit),
-  });
-  return (data.query?.categorymembers || []).map(item => item.title).filter(Boolean);
-}
-
-async function getExtracts(titles) {
-  if (!titles.length) return [];
-  const data = await wikipedia({
-    action: 'query',
+    generator: 'categorymembers',
+    gcmtitle: `Categoría:${category}`,
+    gcmtype: 'page',
+    gcmlimit: String(limit),
     prop: 'extracts',
     exintro: '1',
     explaintext: '1',
     redirects: '1',
-    titles: titles.slice(0, 25).join('|'),
   });
-  return Object.values(data.query?.pages || {}).map(page => ({ title: page.title, extract: page.extract || '' }));
+
+  return Object.values(data.query?.pages || {}).map(page => ({
+    title: page.title,
+    extract: page.extract || '',
+    category,
+  }));
 }
 
 function send(res, status, body) {
@@ -234,13 +233,12 @@ export default async function handler(req, res) {
     const categories = shuffle(CATEGORY_POOLS[level]);
     const candidates = [];
     const categoryErrors = [];
-    const targetCandidates = config.count * 3;
+    const targetCandidates = Math.max(config.count * 2, 30);
 
     for (const category of categories) {
       try {
-        const titles = shuffle(await getCategoryTitles(category, 30)).slice(0, 25);
-        const pages = await getExtracts(titles);
-        for (const page of pages) candidates.push({ ...page, category });
+        const pages = await getCategoryPages(category, 25);
+        candidates.push(...pages);
       } catch (error) {
         categoryErrors.push(category);
         console.warn(`Wikipedia category skipped: ${category}`, error?.message || error);
@@ -284,6 +282,12 @@ export default async function handler(req, res) {
     if (questions.length < 6 && excludedList.length) {
       const relaxed = new Set(excludedList.slice(Math.ceil(excludedList.length / 2)));
       questions = buildQuestions(relaxed);
+      historyRelaxed = true;
+    }
+
+    // Último intento sin historial antes de abandonar Wikipedia.
+    if (questions.length < 6 && excludedList.length) {
+      questions = buildQuestions(new Set());
       historyRelaxed = true;
     }
 
