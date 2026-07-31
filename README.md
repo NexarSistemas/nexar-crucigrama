@@ -76,3 +76,5 @@ Finalmente abrir la página principal y pulsar **Nuevo** varias veces. El fronte
 ## Estado
 
 MVP preparado para Preview en Vercel. La integración dinámica está en una Draft PR hasta validar el endpoint desplegado y el consumo real.
+
+<!-- preview-trigger: 2026-07-31 -->
