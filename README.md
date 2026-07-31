@@ -8,7 +8,6 @@ Juego de crucigramas en español sobre Argentina.
 - Crucigramas compactos y generados dinámicamente.
 - Preguntas y respuestas variables en cada nueva partida.
 - Fuente de preguntas desacoplada del motor.
-- Claves privadas solo en backend.
 - Puntaje e historial local para reducir repeticiones.
 - Fallback local si la nube no está disponible.
 
@@ -19,12 +18,21 @@ Juego de crucigramas en español sobre Argentina.
 - `js/app.js`: estado y eventos del juego.
 - `js/crossword.js`: generación y validación de la cuadrícula.
 - `js/questions.js`: acceso a preguntas remotas y fallback local.
-- `api/questions.js`: Vercel Function que genera preguntas con OpenAI y búsqueda web.
-- `api/health.js`: health check sin consumo de OpenAI.
+- `api/questions.js`: Vercel Function activa, basada en Wikipedia en español y sin costo de IA.
+- `api/questions-openai.js`: implementación OpenAI preservada para una fase futura; no la usa el juego actual.
+- `api/health.js`: informa la fuente activa de preguntas.
 
-## Variables de entorno
+## Fuente gratuita actual
 
-Copiar `.env.example` a `.env.local` solo para desarrollo local.
+La API activa consulta categorías públicas de Wikipedia en español relacionadas con Argentina, obtiene artículos y usa sus introducciones para construir pistas. Las respuestas se normalizan para crucigrama y se filtran por longitud, duplicados e historial reciente.
+
+No se necesita tarjeta, saldo de OpenAI ni clave API para el flujo principal.
+
+## OpenAI para más adelante
+
+La integración anterior quedó guardada en `api/questions-openai.js`. Puede reactivarse en una fase futura si se quiere mejorar la redacción o agregar verificación/generación asistida por IA.
+
+Las variables de entorno de OpenAI son opcionales y no intervienen en el MVP actual:
 
 ```env
 OPENAI_API_KEY=tu_clave
@@ -35,46 +43,40 @@ Nunca subir `.env` ni `.env.local` al repositorio.
 
 ## Despliegue en Vercel
 
-El proyecto está preparado para Vercel sin framework y no necesita `vercel.json` para este MVP.
+El proyecto funciona en Vercel sin framework y no necesita `vercel.json` para este MVP.
 
-1. En Vercel, elegir **Add New > Project**.
-2. Importar `NexarSistemas/nexar-crucigrama` desde GitHub.
-3. Mantener el framework como **Other** y la raíz del proyecto en `./`.
-4. No configurar Build Command ni Output Directory.
-5. En **Environment Variables**, agregar:
-   - `OPENAI_API_KEY`: clave privada de OpenAI.
-   - `OPENAI_MODEL`: opcional; si se omite se usa `gpt-5.6`.
-6. Para probar esta rama antes de producción, desplegar la rama `feature/cloud-questions-api-v3` como Preview.
+1. Importar `NexarSistemas/nexar-crucigrama` desde GitHub.
+2. Mantener el framework como **Other** y la raíz en `./`.
+3. No configurar Build Command ni Output Directory.
+4. Probar primero la rama `feature/cloud-questions-api-v3` como Preview.
 
-## Pruebas después del deploy
+## Pruebas
 
-Primero comprobar el backend sin gastar una llamada a OpenAI:
+Health check:
 
 ```text
 /api/health
 ```
 
-Debe responder con `ok: true`. `openaiConfigured` debe ser `true` cuando la variable `OPENAI_API_KEY` esté configurada.
+Debe informar `questionSource: "wikipedia-es"`.
 
-Después probar:
+Generación gratuita:
 
 ```text
 /api/questions?level=facil
 ```
 
-Debe devolver JSON con `source`, `level` y `questions`.
+Debe devolver JSON con `source: "wikipedia-es"`, `level` y `questions`.
 
-Finalmente abrir la página principal y pulsar **Nuevo** varias veces. El frontend guarda respuestas recientes en `localStorage` y las envía como exclusiones para reducir repeticiones.
+Después abrir la página principal y pulsar **Nuevo** varias veces. El frontend guarda respuestas recientes en `localStorage` y las envía como exclusiones para reducir repeticiones.
 
-## Seguridad y costos
+## Costos y robustez
 
-- `OPENAI_API_KEY` nunca se expone al navegador.
-- El endpoint no tiene caché porque cada partida busca variedad.
-- El fallback local permite seguir jugando si OpenAI o la función fallan.
-- Antes de hacer público el sitio a gran escala conviene agregar protección adicional contra abuso/rate limiting, porque cada llamada válida a `/api/questions` puede consumir API de OpenAI.
+- El flujo principal no consume OpenAI.
+- Wikipedia es una fuente pública externa; puede aplicar límites o tener interrupciones puntuales.
+- El fallback local permite seguir jugando si Wikipedia no responde o no produce suficientes preguntas válidas.
+- El endpoint usa `no-store` para favorecer variedad entre partidas.
 
 ## Estado
 
-MVP preparado para Preview en Vercel. La integración dinámica está en una Draft PR hasta validar el endpoint desplegado y el consumo real.
-
-<!-- preview-trigger: 2026-07-31 -->
+MVP gratuito preparado para Preview en Vercel. La integración OpenAI queda preservada para una fase futura.
