@@ -20,6 +20,7 @@ window.QuestionSource = (() => {
 
   const HISTORY_KEY = 'nexar_crucigrama_recent_answers';
   const HISTORY_LIMIT = 80;
+  const BATCHES = { facil: 1, medio: 2, pro: 3 };
 
   const normalize = value => String(value || '')
     .normalize('NFD')
@@ -70,23 +71,41 @@ window.QuestionSource = (() => {
   async function get(level) {
     const history = readHistory();
     let lastError = null;
+    const merged = new Map();
+    const batches = BATCHES[level] || 1;
+    let source = 'wikipedia-es';
 
-    const attempts = history.length
-      ? [history, history.slice(Math.ceil(history.length / 2)), []]
-      : [[]];
+    for (let batch = 0; batch < batches; batch++) {
+      const already = [...merged.keys()];
+      const exclusions = [...new Set([...history, ...already])].slice(-HISTORY_LIMIT);
+      const attempts = exclusions.length
+        ? [exclusions, exclusions.slice(Math.ceil(exclusions.length / 2)), already]
+        : [already];
 
-    for (const excluded of attempts) {
-      try {
-        const result = await request(level, excluded);
-        saveHistory(result.questions);
-        return result;
-      } catch (error) {
-        lastError = error;
-        console.warn(`Wikipedia no respondió con exclusión de ${excluded.length} respuestas.`, error);
+      let loaded = false;
+      for (const excluded of attempts) {
+        try {
+          const result = await request(level, excluded);
+          source = result.source || source;
+          result.questions.forEach(question => merged.set(question.a, question));
+          loaded = true;
+          break;
+        } catch (error) {
+          lastError = error;
+          console.warn(`Wikipedia no respondió en lote ${batch + 1} con exclusión de ${excluded.length}.`, error);
+        }
       }
+
+      if (!loaded) break;
     }
 
-    console.warn('No se pudo cargar preguntas desde Wikipedia. Se usa respaldo local.', lastError);
+    if (merged.size >= 6) {
+      const questions = [...merged.values()];
+      saveHistory(questions);
+      return { source, questions };
+    }
+
+    console.warn('No se pudo cargar un banco suficiente desde Wikipedia. Se usa respaldo local.', lastError);
     return { source: 'local', questions: [...fallback].sort(() => Math.random() - 0.5) };
   }
 
