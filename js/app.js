@@ -33,15 +33,59 @@ function render(){
   });
 
   const wordCells=new Map();
+  const wordsByCell=new Map();
   game.words.forEach(w=>{
     const keys=[];
     for(let i=0;i<w.a.length;i++){
       const r=w.row+(w.dir==='V'?i:0);
       const c=w.col+(w.dir==='H'?i:0);
-      keys.push(cellKey(r,c));
+      const key=cellKey(r,c);
+      keys.push(key);
+      if(!wordsByCell.has(key)) wordsByCell.set(key,[]);
+      wordsByCell.get(key).push(w);
     }
     wordCells.set(w,keys);
   });
+
+  let activeWord=null;
+
+  function inputForKey(key){
+    const [r,c]=key.split(':');
+    return board.querySelector(`input[data-r="${r}"][data-c="${c}"]`);
+  }
+
+  function activateWord(word,focusKey=null){
+    if(!word)return;
+    activeWord=word;
+    document.querySelectorAll('.casilla.resaltada').forEach(x=>x.classList.remove('resaltada'));
+    document.querySelectorAll('.pista.seleccionada').forEach(x=>x.classList.remove('seleccionada'));
+
+    wordCells.get(word).forEach(key=>inputForKey(key)?.parentElement.classList.add('resaltada'));
+    const clue=document.querySelector(`.pista[data-row="${word.row}"][data-col="${word.col}"][data-dir="${word.dir}"]`);
+    clue?.classList.add('seleccionada');
+
+    const target=inputForKey(focusKey||wordCells.get(word)[0]);
+    target?.focus();
+  }
+
+  function chooseWordAt(r,c,toggle=false){
+    const key=cellKey(r,c);
+    const options=wordsByCell.get(key)||[];
+    if(!options.length)return null;
+    if(!toggle||!activeWord||!options.includes(activeWord)) return options[0];
+    if(options.length===1)return options[0];
+    return options[(options.indexOf(activeWord)+1)%options.length];
+  }
+
+  function moveWithinActive(input,delta){
+    if(!activeWord)return;
+    const key=cellKey(Number(input.dataset.r),Number(input.dataset.c));
+    const keys=wordCells.get(activeWord);
+    const index=keys.indexOf(key);
+    if(index<0)return;
+    const target=keys[index+delta];
+    if(target) inputForKey(target)?.focus();
+  }
 
   game.grid.forEach((row,r)=>row.forEach((letter,c)=>{
     if(!letter){
@@ -66,10 +110,36 @@ function render(){
     input.dataset.c=c;
     input.dataset.answer=letter;
     input.setAttribute('aria-label',`Fila ${r+1}, columna ${c+1}`);
+
+    input.addEventListener('click',()=>{
+      const word=chooseWordAt(r,c,true);
+      if(word)activateWord(word,key);
+    });
+
+    input.addEventListener('focus',()=>{
+      if(activeWord&&wordCells.get(activeWord)?.includes(key))return;
+      const word=chooseWordAt(r,c,false);
+      if(word)activateWord(word,key);
+    });
+
     input.addEventListener('input',e=>{
       e.target.value=e.target.value.toUpperCase().replace(/[^A-ZÑ]/g,'');
       updateProgress();
+      if(e.target.value) moveWithinActive(e.target,1);
     });
+
+    input.addEventListener('keydown',e=>{
+      if(e.key==='Backspace'&&!e.target.value){
+        e.preventDefault();
+        moveWithinActive(e.target,-1);
+        const focused=document.activeElement;
+        if(focused?.classList?.contains('celda')){
+          focused.value='';
+          updateProgress();
+        }
+      }
+    });
+
     wrap.appendChild(input);
     board.appendChild(wrap);
   }));
@@ -84,15 +154,8 @@ function render(){
   clues.innerHTML=section('Horizontales',horizontal)+section('Verticales',vertical);
 
   clues.querySelectorAll('.pista').forEach(btn=>btn.addEventListener('click',()=>{
-    document.querySelectorAll('.casilla.resaltada').forEach(x=>x.classList.remove('resaltada'));
     const word=game.words.find(w=>w.row===Number(btn.dataset.row)&&w.col===Number(btn.dataset.col)&&w.dir===btn.dataset.dir);
-    if(!word)return;
-    wordCells.get(word).forEach(key=>{
-      const [r,c]=key.split(':');
-      const input=board.querySelector(`input[data-r="${r}"][data-c="${c}"]`);
-      input?.parentElement.classList.add('resaltada');
-    });
-    board.querySelector(`input[data-r="${word.row}"][data-c="${word.col}"]`)?.focus();
+    if(word)activateWord(word);
   }));
 
   $('#puntaje').textContent=score;
