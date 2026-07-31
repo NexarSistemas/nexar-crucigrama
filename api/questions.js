@@ -37,6 +37,37 @@ const CATEGORY_POOLS = {
   ],
 };
 
+const VERIFIED_CLUES = [
+  ['MENDOZA','Provincia argentina famosa mundialmente por sus vinos Malbec.','facil'],
+  ['USHUAIA','Capital de la provincia de Tierra del Fuego.','facil'],
+  ['ANDES','Cordillera que marca gran parte del límite entre Argentina y Chile.','facil'],
+  ['PARANA','Río que recorre el Litoral argentino y desemboca en el Río de la Plata.','facil'],
+  ['ACONCAGUA','Montaña más alta de América, ubicada en Mendoza.','facil'],
+  ['ROSARIO','Ciudad santafesina donde Manuel Belgrano creó la bandera argentina.','facil'],
+  ['SALTA','Provincia del noroeste argentino conocida como La Linda.','facil'],
+  ['BARILOCHE','Ciudad rionegrina famosa por sus lagos, montañas y centros de esquí.','facil'],
+  ['TANGO','Baile rioplatense reconocido internacionalmente.','facil'],
+  ['MATE','Infusión tradicional argentina que suele compartirse en ronda.','facil'],
+  ['CHUBUT','Provincia patagónica cuya capital es Rawson.','facil'],
+  ['JUJUY','Provincia argentina cuya capital es San Salvador de Jujuy.','facil'],
+  ['NEUQUEN','Provincia patagónica cuya capital lleva el mismo nombre.','medio'],
+  ['IGUAZU','Cataratas ubicadas en Misiones, compartidas por Argentina y Brasil.','medio'],
+  ['NAHUELHUAPI','Lago patagónico ubicado entre Río Negro y Neuquén.','medio'],
+  ['CALAFATE','Localidad santacruceña considerada puerta de acceso al glaciar Perito Moreno.','medio'],
+  ['PERITOMORENO','Glaciar argentino famoso por sus periódicos desprendimientos de hielo.','medio'],
+  ['BELGRANO','Apellido del creador de la bandera argentina.','facil'],
+  ['SANMARTIN','Apellido del Libertador que encabezó el cruce de los Andes.','facil'],
+  ['BORGES','Apellido del autor argentino de El Aleph y Ficciones.','medio'],
+  ['CORTAZAR','Apellido del autor argentino de Rayuela.','medio'],
+  ['SABATO','Apellido del autor argentino de El túnel y Sobre héroes y tumbas.','medio'],
+  ['FAVALORO','Apellido del cardiocirujano argentino reconocido por desarrollar el bypass coronario.','pro'],
+  ['HOUSSAY','Apellido del científico argentino ganador del Premio Nobel de Medicina en 1947.','pro'],
+  ['MILSTEIN','Apellido del científico argentino ganador del Premio Nobel de Medicina en 1984.','pro'],
+  ['MAFALDA','Personaje de historieta creado por el dibujante argentino Quino.','medio'],
+  ['PENINSULAVALDES','Área natural de Chubut famosa por el avistaje de ballenas francas australes.','pro'],
+  ['TALAMPAYA','Parque nacional riojano conocido por sus formaciones geológicas rojizas.','pro'],
+];
+
 function normalizeAnswer(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-zÑñ]/g, '').toUpperCase();
 }
@@ -96,13 +127,11 @@ function trimFact(value, max = 70) {
 }
 
 function makeClue(title, extract, category, level) {
-  const answerLabel = cleanTitle(title);
   const text = String(extract || '').replace(/\s+/g, ' ').trim();
   if (!text) return '';
   const f = extractFacts(text);
   Object.keys(f).forEach(key => { f[key] = trimFact(f[key]); });
 
-  // Fácil: solo pistas directas y de cultura/geografía general.
   if (level === 'facil') {
     if (category === 'Provincias de Argentina' && f.capital) return `Provincia argentina cuya capital es ${f.capital}.`;
     if (category === 'Ciudades de Argentina' && f.province && f.river) return `Ciudad de ${f.province} situada junto al río ${f.river}.`;
@@ -110,67 +139,42 @@ function makeClue(title, extract, category, level) {
     return '';
   }
 
-  if (category === 'Provincias de Argentina') {
-    if (f.capital) return `Provincia argentina cuya capital es ${f.capital}.`;
-    return '';
-  }
-
+  if (category === 'Provincias de Argentina' && f.capital) return `Provincia argentina cuya capital es ${f.capital}.`;
   if (category === 'Ciudades de Argentina') {
     if (f.province && f.river) return `Ciudad de ${f.province} situada junto al río ${f.river}.`;
     if (f.province && f.area) return `Ciudad de ${f.province} que integra ${f.area}.`;
     if (level === 'pro' && f.province && f.founded) return `Ciudad de ${f.province}, fundada ${f.founded}.`;
     return '';
   }
-
-  if (category === 'Ríos de Argentina') {
-    if (f.province) return `Río argentino vinculado con la provincia de ${f.province}.`;
-    return '';
-  }
-
-  if (category === 'Montañas de Argentina') {
-    if (f.province && f.elevation) return `Montaña de ${f.province}, de aproximadamente ${f.elevation} de altitud.`;
-    return '';
-  }
-
-  if (category === 'Parques nacionales de Argentina') {
-    if (f.province) return `Parque nacional argentino ubicado en ${f.province}.`;
-    return '';
-  }
-
+  if (category === 'Ríos de Argentina' && f.province) return `Río argentino vinculado con la provincia de ${f.province}.`;
+  if (category === 'Montañas de Argentina' && f.province && f.elevation) return `Montaña de ${f.province}, de aproximadamente ${f.elevation} de altitud.`;
+  if (category === 'Parques nacionales de Argentina' && f.province) return `Parque nacional argentino ubicado en ${f.province}.`;
   if (category === 'Escritores de Argentina') {
     if (f.work) return `Autor o autora argentina conocido por ${f.work}.`;
     if (level === 'pro' && f.award) return `Escritor o escritora argentina distinguido con ${f.award}.`;
     return '';
   }
-
   if (category === 'Cantantes de Argentina') {
     if (f.work) return `Cantante argentino conocido por ${f.work}.`;
     if (level === 'pro' && f.award) return `Cantante argentino distinguido con ${f.award}.`;
     return '';
   }
-
   if (category === 'Futbolistas de Argentina') {
     if (f.club) return `Futbolista argentino que jugó en ${f.club}.`;
     if (f.award) return `Futbolista argentino distinguido con ${f.award}.`;
     return '';
   }
-
   if (category === 'Científicos de Argentina') {
     if (f.work) return `Científico argentino destacado por ${f.work}.`;
     if (f.award) return `Científico argentino distinguido con ${f.award}.`;
     return '';
   }
-
-  if (category === 'Museos de Argentina') {
-    if (f.province) return `Museo argentino ubicado en ${f.province}.`;
-    return '';
-  }
-
+  if (category === 'Museos de Argentina' && f.province) return `Museo argentino ubicado en ${f.province}.`;
   return '';
 }
 
 function isGoodClue(question, level) {
-  if (!question || question.length < 28 || question.length > 125) return false;
+  if (!question || question.length < 24 || question.length > 125) return false;
   const q = question.toLowerCase();
   const banned = [
     'se subdivide', 'partido homónimo', 'departamento homónimo', 'microcentro',
@@ -179,8 +183,8 @@ function isGoodClue(question, level) {
     'es un futbolista', 'es una futbolista', 'es un político', 'es una política',
   ];
   if (banned.some(value => q.includes(value))) return false;
-  if (/\b(19|20)\d{2}\b/u.test(question) && level !== 'pro') return false;
   if (/\b\d{1,3}\s*km\b/iu.test(question)) return false;
+  if (/\b(19|20)\d{2}\b/u.test(question) && level !== 'pro') return false;
   return true;
 }
 
@@ -222,6 +226,19 @@ async function collectCandidates(categories) {
   return { candidates, categoryErrors };
 }
 
+function verifiedFor(level, excluded) {
+  const rank = { facil: 0, medio: 1, pro: 2 };
+  return shuffle(VERIFIED_CLUES)
+    .filter(([answer,, minimum]) => rank[minimum] <= rank[level] && !excluded.has(answer))
+    .map(([answer, question]) => ({
+      question,
+      answer,
+      sourceTitle: answer,
+      sourceUrl: `https://es.wikipedia.org/wiki/${encodeURIComponent(answer.replace(/ /g, '_'))}`,
+      verifiedFallback: true,
+    }));
+}
+
 function send(res, status, body) {
   res.status(status);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -245,7 +262,6 @@ export default async function handler(req, res) {
 
   try {
     const { candidates, categoryErrors } = await collectCandidates(CATEGORY_POOLS[level]);
-    if (!candidates.length) return send(res, 502, { error: 'wikipedia_fetch_failed', categoryErrors });
 
     function buildQuestions(excluded) {
       const seen = new Set(), seenClues = new Set(), questions = [];
@@ -262,9 +278,15 @@ export default async function handler(req, res) {
           question, answer, sourceTitle: item.title,
           sourceUrl: `https://es.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, '_'))}`,
         });
-        if (questions.length >= requestedCount) break;
       }
-      return questions;
+
+      for (const item of verifiedFor(level, excluded)) {
+        if (questions.length >= requestedCount) break;
+        if (seen.has(item.answer)) continue;
+        seen.add(item.answer);
+        questions.push(item);
+      }
+      return questions.slice(0, requestedCount);
     }
 
     let questions = buildQuestions(new Set(excludedList));
@@ -273,17 +295,20 @@ export default async function handler(req, res) {
       questions = buildQuestions(new Set(excludedList.slice(Math.ceil(excludedList.length / 2))));
       historyRelaxed = true;
     }
-    if (questions.length < 6 && excludedList.length) {
+    if (questions.length < 6) {
       questions = buildQuestions(new Set());
       historyRelaxed = true;
     }
+
     if (questions.length < 6) {
       return send(res, 502, { error: 'insufficient_wikipedia_questions', generated: questions.length, candidates: candidates.length, categoryErrors });
     }
 
+    const verifiedFallbackCount = questions.filter(q => q.verifiedFallback).length;
     return send(res, 200, {
-      source: 'wikipedia-es', level, requestedCount, historyRelaxed, categoryErrors,
-      candidateCount: candidates.length, questions,
+      source: verifiedFallbackCount ? 'wikipedia-es+verificado' : 'wikipedia-es',
+      level, requestedCount, historyRelaxed, categoryErrors,
+      candidateCount: candidates.length, verifiedFallbackCount, questions,
     });
   } catch (error) {
     console.error(error);
