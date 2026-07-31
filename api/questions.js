@@ -64,12 +64,23 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function cleanExtract(extract, answerLabel) {
-  let text = String(extract || '').replace(/\s+/g, ' ').trim();
-  if (!text) return '';
+function redactAnswer(text, answerLabel) {
+  let result = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!result) return '';
+
   const exact = new RegExp(escapeRegExp(answerLabel), 'giu');
-  text = text.replace(exact, '');
-  return text.replace(/\s{2,}/g, ' ').trim();
+  result = result.replace(exact, '');
+
+  const parts = answerLabel.split(/\s+/u).filter(part => part.length >= 5);
+  for (const part of parts) {
+    result = result.replace(new RegExp(`\\b${escapeRegExp(part)}\\b`, 'giu'), '');
+  }
+
+  return result
+    .replace(/\s+([,.;:])/gu, '$1')
+    .replace(/\s{2,}/gu, ' ')
+    .replace(/^[,.;:\-–—\s]+/u, '')
+    .trim();
 }
 
 function matchFirst(text, patterns) {
@@ -80,91 +91,150 @@ function matchFirst(text, patterns) {
   return '';
 }
 
+function extractFacts(text) {
+  return {
+    province: matchFirst(text, [
+      /provincia de ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
+      /provincia argentina de ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
+    ]),
+    river: matchFirst(text, [
+      /río ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
+    ]),
+    area: matchFirst(text, [
+      /(Gran [A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,30})[,.;]/u,
+      /(área metropolitana de [A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,30})[,.;]/u,
+    ]),
+    born: matchFirst(text, [
+      /naci(?:ó|da|do) en ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
+    ]),
+    work: matchFirst(text, [
+      /autor(?:a)? de ([^.;]{4,80})[.;]/iu,
+      /conocid[oa] por ([^.;]{4,80})[.;]/iu,
+      /se destac[óo] por ([^.;]{4,80})[.;]/iu,
+    ]),
+    capital: matchFirst(text, [
+      /capital(?: es|:)? ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/iu,
+    ]),
+    distance: matchFirst(text, [
+      /a (\d{1,4}\s*km[^.;]{0,45})[.;]/iu,
+    ]),
+    founded: matchFirst(text, [
+      /fundad[oa] (?:el |en )([^.;]{4,60})[.;]/iu,
+    ]),
+    elevation: matchFirst(text, [
+      /(?:altura|altitud)[^\d]{0,20}(\d{2,5}\s*m(?: s\. ?n\. ?m\.)?)/iu,
+    ]),
+  };
+}
+
+function distinctiveSentence(extract, answerLabel) {
+  const sentences = String(extract || '')
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?])\s+/u)
+    .map(sentence => redactAnswer(sentence, answerLabel))
+    .filter(sentence => sentence.length >= 35 && sentence.length <= 135)
+    .filter(sentence => !/^es (una|un) /iu.test(sentence))
+    .filter(sentence => !/^(ciudad|localidad|río|montaña|provincia|museo) (de|de la) argentina/iu.test(sentence));
+
+  return sentences.find(sentence => /\d|río|capital|fund|premio|obra|cordillera|parque|provincia|club|selección|museo/iu.test(sentence)) || '';
+}
+
 function makeClue(title, extract, category) {
   const answerLabel = cleanTitle(title);
-  const text = cleanExtract(extract, answerLabel);
+  const text = String(extract || '').replace(/\s+/g, ' ').trim();
   if (!text) return '';
 
-  const province = matchFirst(text, [
-    /provincia de ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
-    /provincia argentina de ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
-  ]);
-  const river = matchFirst(text, [
-    /río ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
-  ]);
-  const area = matchFirst(text, [
-    /(Gran [A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,30})[,.;]/u,
-    /(área metropolitana de [A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,30})[,.;]/u,
-  ]);
-  const born = matchFirst(text, [
-    /naci(?:ó|da|do) en ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
-  ]);
-  const work = matchFirst(text, [
-    /autor(?:a)? de ([^.;]{4,80})[.;]/iu,
-    /conocid[oa] por ([^.;]{4,80})[.;]/iu,
-  ]);
+  const facts = extractFacts(text);
+  const unique = distinctiveSentence(text, answerLabel);
 
   if (category === 'Provincias de Argentina') {
-    const capital = matchFirst(text, [/capital(?: es|:)? ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/iu]);
-    if (capital) return `Provincia argentina cuya capital es ${capital}.`;
-    return 'Provincia de la República Argentina.';
+    if (facts.capital) return `Provincia argentina cuya capital es ${facts.capital}.`;
+    return unique;
   }
 
   if (category === 'Ciudades de Argentina' || category === 'Localidades de Argentina') {
-    if (province) return `Ciudad argentina ubicada en la provincia de ${province}.`;
-    if (area) return `Localidad argentina que forma parte de ${area}.`;
-    if (river) return `Ciudad argentina situada junto al río ${river}.`;
-    return 'Ciudad o localidad de la Argentina.';
+    if (facts.province && facts.river) return `Ciudad de la provincia de ${facts.province}, situada junto al río ${facts.river}.`;
+    if (facts.province && facts.area) return `Ciudad de ${facts.province} que forma parte de ${facts.area}.`;
+    if (facts.province && facts.distance) return `Ciudad de ${facts.province}, ubicada ${facts.distance}.`;
+    if (facts.area && facts.river) return `Localidad de ${facts.area}, situada junto al río ${facts.river}.`;
+    if (facts.province && facts.founded) return `Ciudad de ${facts.province}, fundada ${facts.founded}.`;
+    return unique;
   }
 
   if (category === 'Ríos de Argentina') {
-    if (province) return `Río argentino vinculado con la provincia de ${province}.`;
-    return 'Río de la Argentina.';
+    if (facts.province && facts.distance) return `Río argentino vinculado con ${facts.province}; ${facts.distance}.`;
+    if (facts.province) return `Río argentino asociado a la provincia de ${facts.province}.`;
+    return unique;
   }
 
   if (category === 'Montañas de Argentina') {
-    if (province) return `Montaña argentina ubicada en la provincia de ${province}.`;
-    return 'Montaña o cumbre de la Argentina.';
+    if (facts.province && facts.elevation) return `Montaña de ${facts.province}, con una altitud aproximada de ${facts.elevation}.`;
+    if (facts.province) return `Montaña argentina ubicada en la provincia de ${facts.province}.`;
+    return unique;
   }
 
   if (category === 'Parques nacionales de Argentina') {
-    if (province) return `Parque nacional argentino ubicado en la provincia de ${province}.`;
-    return 'Área protegida integrante del sistema de parques nacionales de Argentina.';
+    if (facts.province && facts.river) return `Parque nacional de ${facts.province} relacionado con el río ${facts.river}.`;
+    if (facts.province) return `Parque nacional argentino ubicado en ${facts.province}.`;
+    return unique;
   }
 
   if (category === 'Escritores de Argentina') {
-    if (work) return `Escritor o escritora argentina, ${work}.`;
-    if (born) return `Escritor o escritora argentina nacido en ${born}.`;
-    return 'Escritor o escritora de la Argentina.';
+    if (facts.work && facts.born) return `Escritor o escritora argentina nacido en ${facts.born}, conocido por ${facts.work}.`;
+    if (facts.work) return `Autor o autora argentina conocido por ${facts.work}.`;
+    if (facts.born) return `Escritor o escritora argentina nacido en ${facts.born}.`;
+    return unique;
   }
 
   if (category === 'Cantantes de Argentina') {
-    if (born) return `Cantante argentino o argentina nacido en ${born}.`;
-    return 'Cantante de la Argentina.';
+    if (facts.work && facts.born) return `Cantante argentino nacido en ${facts.born}, conocido por ${facts.work}.`;
+    if (facts.work) return `Cantante de Argentina conocido por ${facts.work}.`;
+    if (facts.born) return `Cantante argentino nacido en ${facts.born}.`;
+    return unique;
   }
 
   if (category === 'Futbolistas de Argentina') {
-    if (born) return `Futbolista argentino nacido en ${born}.`;
-    return 'Futbolista de nacionalidad argentina.';
+    if (facts.born && unique) return `Futbolista argentino nacido en ${facts.born}. ${unique}`;
+    if (facts.born) return `Futbolista argentino nacido en ${facts.born}.`;
+    return unique;
   }
 
   if (category === 'Científicos de Argentina') {
-    if (born) return `Científico o científica argentina nacido en ${born}.`;
-    return 'Científico o científica de la Argentina.';
+    if (facts.work && facts.born) return `Científico argentino nacido en ${facts.born}, destacado por ${facts.work}.`;
+    if (facts.work) return `Científico argentino destacado por ${facts.work}.`;
+    if (facts.born) return `Científico argentino nacido en ${facts.born}.`;
+    return unique;
   }
 
   if (category === 'Políticos de Argentina') {
-    if (born) return `Político o política argentina nacido en ${born}.`;
-    return 'Figura de la política argentina.';
+    if (facts.born && unique) return `Figura política argentina nacida en ${facts.born}. ${unique}`;
+    if (facts.born) return `Figura de la política argentina nacida en ${facts.born}.`;
+    return unique;
   }
 
   if (category === 'Museos de Argentina') {
-    if (province) return `Museo argentino ubicado en la provincia de ${province}.`;
-    return 'Museo ubicado en la Argentina.';
+    if (facts.province && unique) return `Museo ubicado en ${facts.province}. ${unique}`;
+    if (facts.province) return `Museo argentino ubicado en ${facts.province}.`;
+    return unique;
   }
 
-  const sentence = text.split(/(?<=[.!?])\s+/u).find(s => s.length >= 24 && s.length <= 150) || '';
-  return sentence.replace(/^,?\s*/u, '').trim();
+  return unique;
+}
+
+function isGenericClue(question) {
+  const normalized = question.toLowerCase();
+  return [
+    'provincia de la república argentina',
+    'ciudad o localidad de la argentina',
+    'río de la argentina',
+    'montaña o cumbre de la argentina',
+    'escritor o escritora de la argentina',
+    'cantante de la argentina',
+    'futbolista de nacionalidad argentina',
+    'científico o científica de la argentina',
+    'figura de la política argentina',
+    'museo ubicado en la argentina',
+  ].some(value => normalized.includes(value));
 }
 
 async function wikipedia(params) {
@@ -184,7 +254,6 @@ async function wikipedia(params) {
   }
 }
 
-// Una sola llamada por categoría: obtiene páginas y extractos juntos.
 async function getCategoryPages(category, limit = 25) {
   const data = await wikipedia({
     action: 'query',
@@ -233,11 +302,11 @@ export default async function handler(req, res) {
     const categories = shuffle(CATEGORY_POOLS[level]);
     const candidates = [];
     const categoryErrors = [];
-    const targetCandidates = Math.max(config.count * 2, 30);
+    const targetCandidates = Math.max(config.count * 3, 40);
 
     for (const category of categories) {
       try {
-        const pages = await getCategoryPages(category, 25);
+        const pages = await getCategoryPages(category, 30);
         candidates.push(...pages);
       } catch (error) {
         categoryErrors.push(category);
@@ -253,7 +322,9 @@ export default async function handler(req, res) {
 
     function buildQuestions(excluded) {
       const seen = new Set();
+      const seenClues = new Set();
       const questions = [];
+
       for (const item of shuffle(candidates)) {
         const answerLabel = cleanTitle(item.title);
         const answer = normalizeAnswer(answerLabel);
@@ -261,10 +332,15 @@ export default async function handler(req, res) {
         if (excluded.has(answer) || seen.has(answer)) continue;
 
         const question = makeClue(item.title, item.extract, item.category);
-        if (!question || question.length < 20 || question.length > 150) continue;
+        if (!question || question.length < 25 || question.length > 170) continue;
+        if (isGenericClue(question)) continue;
         if (normalizeAnswer(question).includes(answer)) continue;
 
+        const clueKey = question.toLowerCase().replace(/\s+/g, ' ').trim();
+        if (seenClues.has(clueKey)) continue;
+
         seen.add(answer);
+        seenClues.add(clueKey);
         questions.push({
           question,
           answer,
@@ -285,7 +361,6 @@ export default async function handler(req, res) {
       historyRelaxed = true;
     }
 
-    // Último intento sin historial antes de abandonar Wikipedia.
     if (questions.length < 6 && excludedList.length) {
       questions = buildQuestions(new Set());
       historyRelaxed = true;
