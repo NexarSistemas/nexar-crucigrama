@@ -28,12 +28,19 @@ function send(res, status, body) {
   res.status(status);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Access-Control-Allow-Origin', '*');
   res.json(body);
 }
 
+function isAuthorized(req) {
+  const token = process.env.OPENAI_QUESTIONS_TOKEN;
+  if (!token) return false;
+  const header = String(req.headers.authorization || '');
+  return header === `Bearer ${token}`;
+}
+
 export default async function handler(req, res) {
-  if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' });
+  if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' });
+  if (!isAuthorized(req)) return send(res, 404, { error: 'not_found' });
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return send(res, 503, { error: 'openai_api_key_missing' });
