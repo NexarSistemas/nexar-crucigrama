@@ -20,7 +20,7 @@ window.QuestionSource = (() => {
 
   const HISTORY_KEY = 'nexar_crucigrama_recent_answers';
   const HISTORY_LIMIT = 80;
-  const BATCHES = { facil: 1, medio: 2, pro: 3 };
+  const POOL_SIZE = { facil: 30, medio: 45, pro: 70 };
 
   const normalize = value => String(value || '')
     .normalize('NFD')
@@ -37,7 +37,7 @@ window.QuestionSource = (() => {
     }
   }
 
-  function saveHistory(questions) {
+  function markUsed(questions) {
     try {
       const previous = readHistory();
       const current = questions.map(item => normalize(item.a)).filter(Boolean);
@@ -49,7 +49,10 @@ window.QuestionSource = (() => {
   }
 
   async function request(level, excluded) {
-    const params = new URLSearchParams({ level });
+    const params = new URLSearchParams({
+      level,
+      count: String(POOL_SIZE[level] || 30),
+    });
     if (excluded.length) params.set('exclude', excluded.join(','));
 
     const apiBase = window.NEXAR_QUESTIONS_API_URL || '/api/questions';
@@ -62,7 +65,8 @@ window.QuestionSource = (() => {
 
     const questions = data.questions
       .map(item => ({ q: String(item.question || '').trim(), a: normalize(item.answer) }))
-      .filter(item => item.q && item.a.length >= 3);
+      .filter(item => item.q && item.a.length >= 3)
+      .filter((item, index, arr) => arr.findIndex(other => other.a === item.a) === index);
 
     if (questions.length < 6) throw new Error('Preguntas inválidas');
     return { source: data.source || 'cloud', questions };
@@ -71,43 +75,22 @@ window.QuestionSource = (() => {
   async function get(level) {
     const history = readHistory();
     let lastError = null;
-    const merged = new Map();
-    const batches = BATCHES[level] || 1;
-    let source = 'wikipedia-es';
+    const attempts = history.length
+      ? [history, history.slice(Math.ceil(history.length / 2)), []]
+      : [[]];
 
-    for (let batch = 0; batch < batches; batch++) {
-      const already = [...merged.keys()];
-      const exclusions = [...new Set([...history, ...already])].slice(-HISTORY_LIMIT);
-      const attempts = exclusions.length
-        ? [exclusions, exclusions.slice(Math.ceil(exclusions.length / 2)), already]
-        : [already];
-
-      let loaded = false;
-      for (const excluded of attempts) {
-        try {
-          const result = await request(level, excluded);
-          source = result.source || source;
-          result.questions.forEach(question => merged.set(question.a, question));
-          loaded = true;
-          break;
-        } catch (error) {
-          lastError = error;
-          console.warn(`Wikipedia no respondió en lote ${batch + 1} con exclusión de ${excluded.length}.`, error);
-        }
+    for (const excluded of attempts) {
+      try {
+        return await request(level, excluded);
+      } catch (error) {
+        lastError = error;
+        console.warn(`Wikipedia no respondió con exclusión de ${excluded.length} respuestas.`, error);
       }
-
-      if (!loaded) break;
-    }
-
-    if (merged.size >= 6) {
-      const questions = [...merged.values()];
-      saveHistory(questions);
-      return { source, questions };
     }
 
     console.warn('No se pudo cargar un banco suficiente desde Wikipedia. Se usa respaldo local.', lastError);
     return { source: 'local', questions: [...fallback].sort(() => Math.random() - 0.5) };
   }
 
-  return { get };
+  return { get, markUsed };
 })();
