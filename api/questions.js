@@ -14,6 +14,7 @@ const CATEGORY_POOLS = {
     'Montañas de Argentina',
   ],
   medio: [
+    'Provincias de Argentina',
     'Ciudades de Argentina',
     'Ríos de Argentina',
     'Montañas de Argentina',
@@ -23,6 +24,7 @@ const CATEGORY_POOLS = {
     'Futbolistas de Argentina',
   ],
   pro: [
+    'Provincias de Argentina',
     'Ciudades de Argentina',
     'Ríos de Argentina',
     'Montañas de Argentina',
@@ -31,24 +33,16 @@ const CATEGORY_POOLS = {
     'Cantantes de Argentina',
     'Futbolistas de Argentina',
     'Científicos de Argentina',
-    'Políticos de Argentina',
     'Museos de Argentina',
   ],
 };
 
 function normalizeAnswer(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^A-Za-zÑñ]/g, '')
-    .toUpperCase();
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-zÑñ]/g, '').toUpperCase();
 }
 
 function cleanTitle(title) {
-  return String(title || '')
-    .replace(/\s*\([^)]*\)\s*$/u, '')
-    .replace(/^Anexo:/u, '')
-    .trim();
+  return String(title || '').replace(/\s*\([^)]*\)\s*$/u, '').replace(/^Anexo:/u, '').trim();
 }
 
 function shuffle(items) {
@@ -58,24 +52,6 @@ function shuffle(items) {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function redactAnswer(text, answerLabel) {
-  let result = String(text || '').replace(/\s+/g, ' ').trim();
-  if (!result) return '';
-  result = result.replace(new RegExp(escapeRegExp(answerLabel), 'giu'), '');
-  for (const part of answerLabel.split(/\s+/u).filter(part => part.length >= 5)) {
-    result = result.replace(new RegExp(`\\b${escapeRegExp(part)}\\b`, 'giu'), '');
-  }
-  return result
-    .replace(/\s+([,.;:])/gu, '$1')
-    .replace(/\s{2,}/gu, ' ')
-    .replace(/^[,.;:\-–—\s]+/u, '')
-    .trim();
 }
 
 function matchFirst(text, patterns) {
@@ -93,109 +69,119 @@ function extractFacts(text) {
       /provincia argentina de ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
     ]),
     river: matchFirst(text, [/río ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u]),
-    area: matchFirst(text, [
-      /(Gran [A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,30})[,.;]/u,
-      /(área metropolitana de [A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,30})[,.;]/u,
-    ]),
-    born: matchFirst(text, [/naci(?:ó|da|do) en ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u]),
-    work: matchFirst(text, [
-      /autor(?:a)? de ([^.;]{4,80})[.;]/iu,
-      /conocid[oa] por ([^.;]{4,80})[.;]/iu,
-      /se destac[óo] por ([^.;]{4,80})[.;]/iu,
-    ]),
+    area: matchFirst(text, [/(Gran [A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,30})[,.;]/u]),
     capital: matchFirst(text, [/capital(?: es|:)? ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/iu]),
-    distance: matchFirst(text, [/a (\d{1,4}\s*km[^.;]{0,45})[.;]/iu]),
-    founded: matchFirst(text, [/fundad[oa] (?:el |en )([^.;]{4,60})[.;]/iu]),
+    founded: matchFirst(text, [/fundad[oa] (?:el |en )([^.;]{4,45})[.;]/iu]),
     elevation: matchFirst(text, [/(?:altura|altitud)[^\d]{0,20}(\d{2,5}\s*m(?: s\. ?n\. ?m\.)?)/iu]),
+    work: matchFirst(text, [
+      /autor(?:a)? de ([^.;]{4,70})[.;]/iu,
+      /conocid[oa] por ([^.;]{4,70})[.;]/iu,
+      /se destac[óo] por ([^.;]{4,70})[.;]/iu,
+      /famos[oa] por ([^.;]{4,70})[.;]/iu,
+    ]),
+    club: matchFirst(text, [
+      /jugó en ([^.;]{3,55})[.;]/iu,
+      /militó en ([^.;]{3,55})[.;]/iu,
+    ]),
+    award: matchFirst(text, [
+      /(?:ganó|recibió|obtuvo) (?:el |la )?([^.;]{4,65})[.;]/iu,
+      /premio ([^.;]{4,60})[.;]/iu,
+    ]),
   };
 }
 
-function distinctiveSentence(extract, answerLabel) {
-  return String(extract || '')
-    .replace(/\s+/g, ' ')
-    .split(/(?<=[.!?])\s+/u)
-    .map(sentence => redactAnswer(sentence, answerLabel))
-    .filter(sentence => sentence.length >= 35 && sentence.length <= 135)
-    .filter(sentence => !/^es (una|un) /iu.test(sentence))
-    .filter(sentence => !/^(ciudad|localidad|río|montaña|provincia|museo) (de|de la) argentina/iu.test(sentence))
-    .find(sentence => /\d|río|capital|fund|premio|obra|cordillera|parque|provincia|club|selección|museo/iu.test(sentence)) || '';
+function trimFact(value, max = 70) {
+  const clean = String(value || '').replace(/\s+/g, ' ').replace(/^[,;:\-\s]+|[,;:\-\s]+$/g, '').trim();
+  return clean.length <= max ? clean : '';
 }
 
-function makeClue(title, extract, category) {
+function makeClue(title, extract, category, level) {
   const answerLabel = cleanTitle(title);
   const text = String(extract || '').replace(/\s+/g, ' ').trim();
   if (!text) return '';
-  const facts = extractFacts(text);
-  const unique = distinctiveSentence(text, answerLabel);
+  const f = extractFacts(text);
+  Object.keys(f).forEach(key => { f[key] = trimFact(f[key]); });
+
+  // Fácil: solo pistas directas y de cultura/geografía general.
+  if (level === 'facil') {
+    if (category === 'Provincias de Argentina' && f.capital) return `Provincia argentina cuya capital es ${f.capital}.`;
+    if (category === 'Ciudades de Argentina' && f.province && f.river) return `Ciudad de ${f.province} situada junto al río ${f.river}.`;
+    if (category === 'Montañas de Argentina' && f.province && f.elevation) return `Montaña de ${f.province}, de aproximadamente ${f.elevation} de altitud.`;
+    return '';
+  }
 
   if (category === 'Provincias de Argentina') {
-    if (facts.capital) return `Provincia argentina cuya capital es ${facts.capital}.`;
-    return unique;
+    if (f.capital) return `Provincia argentina cuya capital es ${f.capital}.`;
+    return '';
   }
+
   if (category === 'Ciudades de Argentina') {
-    if (facts.province && facts.river) return `Ciudad de la provincia de ${facts.province}, situada junto al río ${facts.river}.`;
-    if (facts.province && facts.area) return `Ciudad de ${facts.province} que forma parte de ${facts.area}.`;
-    if (facts.province && facts.founded) return `Ciudad de ${facts.province}, fundada ${facts.founded}.`;
-    if (facts.province && facts.distance) return `Ciudad de ${facts.province}, ubicada ${facts.distance}.`;
-    return unique;
+    if (f.province && f.river) return `Ciudad de ${f.province} situada junto al río ${f.river}.`;
+    if (f.province && f.area) return `Ciudad de ${f.province} que integra ${f.area}.`;
+    if (level === 'pro' && f.province && f.founded) return `Ciudad de ${f.province}, fundada ${f.founded}.`;
+    return '';
   }
+
   if (category === 'Ríos de Argentina') {
-    if (facts.province) return `Río argentino asociado a la provincia de ${facts.province}.`;
-    return unique;
+    if (f.province) return `Río argentino vinculado con la provincia de ${f.province}.`;
+    return '';
   }
+
   if (category === 'Montañas de Argentina') {
-    if (facts.province && facts.elevation) return `Montaña de ${facts.province}, con una altitud aproximada de ${facts.elevation}.`;
-    if (facts.province) return `Montaña argentina ubicada en la provincia de ${facts.province}.`;
-    return unique;
+    if (f.province && f.elevation) return `Montaña de ${f.province}, de aproximadamente ${f.elevation} de altitud.`;
+    return '';
   }
+
   if (category === 'Parques nacionales de Argentina') {
-    if (facts.province) return `Parque nacional argentino ubicado en ${facts.province}.`;
-    return unique;
+    if (f.province) return `Parque nacional argentino ubicado en ${f.province}.`;
+    return '';
   }
+
   if (category === 'Escritores de Argentina') {
-    if (facts.work) return `Autor o autora argentina conocido por ${facts.work}.`;
-    if (facts.born) return `Escritor o escritora argentina nacido en ${facts.born}.`;
-    return unique;
+    if (f.work) return `Autor o autora argentina conocido por ${f.work}.`;
+    if (level === 'pro' && f.award) return `Escritor o escritora argentina distinguido con ${f.award}.`;
+    return '';
   }
+
   if (category === 'Cantantes de Argentina') {
-    if (facts.work) return `Cantante de Argentina conocido por ${facts.work}.`;
-    if (facts.born) return `Cantante argentino nacido en ${facts.born}.`;
-    return unique;
+    if (f.work) return `Cantante argentino conocido por ${f.work}.`;
+    if (level === 'pro' && f.award) return `Cantante argentino distinguido con ${f.award}.`;
+    return '';
   }
+
   if (category === 'Futbolistas de Argentina') {
-    if (facts.born) return `Futbolista argentino nacido en ${facts.born}.`;
-    return unique;
+    if (f.club) return `Futbolista argentino que jugó en ${f.club}.`;
+    if (f.award) return `Futbolista argentino distinguido con ${f.award}.`;
+    return '';
   }
+
   if (category === 'Científicos de Argentina') {
-    if (facts.work) return `Científico argentino destacado por ${facts.work}.`;
-    if (facts.born) return `Científico argentino nacido en ${facts.born}.`;
-    return unique;
+    if (f.work) return `Científico argentino destacado por ${f.work}.`;
+    if (f.award) return `Científico argentino distinguido con ${f.award}.`;
+    return '';
   }
-  if (category === 'Políticos de Argentina') {
-    if (facts.born) return `Figura de la política argentina nacida en ${facts.born}.`;
-    return unique;
-  }
+
   if (category === 'Museos de Argentina') {
-    if (facts.province) return `Museo argentino ubicado en ${facts.province}.`;
-    return unique;
+    if (f.province) return `Museo argentino ubicado en ${f.province}.`;
+    return '';
   }
-  return unique;
+
+  return '';
 }
 
-function isGenericClue(question) {
-  const normalized = question.toLowerCase();
-  return [
-    'provincia de la república argentina',
-    'ciudad o localidad de la argentina',
-    'río de la argentina',
-    'montaña o cumbre de la argentina',
-    'escritor o escritora de la argentina',
-    'cantante de la argentina',
-    'futbolista de nacionalidad argentina',
-    'científico o científica de la argentina',
-    'figura de la política argentina',
-    'museo ubicado en la argentina',
-  ].some(value => normalized.includes(value));
+function isGoodClue(question, level) {
+  if (!question || question.length < 28 || question.length > 125) return false;
+  const q = question.toLowerCase();
+  const banned = [
+    'se subdivide', 'partido homónimo', 'departamento homónimo', 'microcentro',
+    'a aproximadamente', 'nació en', 'de origen mendocino', 'de origen argentino',
+    'es un actor', 'es una actriz', 'es un cantante', 'es una cantante',
+    'es un futbolista', 'es una futbolista', 'es un político', 'es una política',
+  ];
+  if (banned.some(value => q.includes(value))) return false;
+  if (/\b(19|20)\d{2}\b/u.test(question) && level !== 'pro') return false;
+  if (/\b\d{1,3}\s*km\b/iu.test(question)) return false;
+  return true;
 }
 
 async function wikipedia(params) {
@@ -215,34 +201,19 @@ async function wikipedia(params) {
   }
 }
 
-async function getCategoryPages(category, limit = 40) {
+async function getCategoryPages(category, limit = 45) {
   const data = await wikipedia({
-    action: 'query',
-    generator: 'categorymembers',
-    gcmtitle: `Categoría:${category}`,
-    gcmtype: 'page',
-    gcmlimit: String(limit),
-    prop: 'extracts',
-    exintro: '1',
-    explaintext: '1',
-    redirects: '1',
+    action: 'query', generator: 'categorymembers', gcmtitle: `Categoría:${category}`,
+    gcmtype: 'page', gcmlimit: String(limit), prop: 'extracts', exintro: '1', explaintext: '1', redirects: '1',
   });
-  return Object.values(data.query?.pages || {}).map(page => ({
-    title: page.title,
-    extract: page.extract || '',
-    category,
-  }));
+  return Object.values(data.query?.pages || {}).map(page => ({ title: page.title, extract: page.extract || '', category }));
 }
 
 async function collectCandidates(categories) {
-  const candidates = [];
-  const categoryErrors = [];
-  const ordered = shuffle(categories);
-  const batchSize = 3;
-
+  const candidates = [], categoryErrors = [], ordered = shuffle(categories), batchSize = 3;
   for (let i = 0; i < ordered.length; i += batchSize) {
     const batch = ordered.slice(i, i + batchSize);
-    const results = await Promise.allSettled(batch.map(category => getCategoryPages(category, 40)));
+    const results = await Promise.allSettled(batch.map(category => getCategoryPages(category)));
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') candidates.push(...result.value);
       else categoryErrors.push(batch[index]);
@@ -270,36 +241,25 @@ export default async function handler(req, res) {
   const level = LEVEL_CONFIG[req.query.level] ? req.query.level : 'facil';
   const config = LEVEL_CONFIG[level];
   const requestedCount = Math.max(6, Math.min(80, Number(req.query.count) || config.count));
-  const excludedList = String(req.query.exclude || '')
-    .split(',')
-    .map(normalizeAnswer)
-    .filter(Boolean)
-    .slice(0, 80);
+  const excludedList = String(req.query.exclude || '').split(',').map(normalizeAnswer).filter(Boolean).slice(0, 80);
 
   try {
     const { candidates, categoryErrors } = await collectCandidates(CATEGORY_POOLS[level]);
     if (!candidates.length) return send(res, 502, { error: 'wikipedia_fetch_failed', categoryErrors });
 
     function buildQuestions(excluded) {
-      const seen = new Set();
-      const seenClues = new Set();
-      const questions = [];
+      const seen = new Set(), seenClues = new Set(), questions = [];
       for (const item of shuffle(candidates)) {
         const answerLabel = cleanTitle(item.title);
         const answer = normalizeAnswer(answerLabel);
-        if (answer.length < config.min || answer.length > config.max) continue;
-        if (excluded.has(answer) || seen.has(answer)) continue;
-        const question = makeClue(item.title, item.extract, item.category);
-        if (!question || question.length < 24 || question.length > 150) continue;
-        if (isGenericClue(question) || normalizeAnswer(question).includes(answer)) continue;
+        if (answer.length < config.min || answer.length > config.max || excluded.has(answer) || seen.has(answer)) continue;
+        const question = makeClue(item.title, item.extract, item.category, level);
+        if (!isGoodClue(question, level) || normalizeAnswer(question).includes(answer)) continue;
         const clueKey = question.toLowerCase().replace(/\s+/g, ' ').trim();
         if (seenClues.has(clueKey)) continue;
-        seen.add(answer);
-        seenClues.add(clueKey);
+        seen.add(answer); seenClues.add(clueKey);
         questions.push({
-          question,
-          answer,
-          sourceTitle: item.title,
+          question, answer, sourceTitle: item.title,
           sourceUrl: `https://es.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, '_'))}`,
         });
         if (questions.length >= requestedCount) break;
@@ -318,22 +278,12 @@ export default async function handler(req, res) {
       historyRelaxed = true;
     }
     if (questions.length < 6) {
-      return send(res, 502, {
-        error: 'insufficient_wikipedia_questions',
-        generated: questions.length,
-        candidates: candidates.length,
-        categoryErrors,
-      });
+      return send(res, 502, { error: 'insufficient_wikipedia_questions', generated: questions.length, candidates: candidates.length, categoryErrors });
     }
 
     return send(res, 200, {
-      source: 'wikipedia-es',
-      level,
-      requestedCount,
-      historyRelaxed,
-      categoryErrors,
-      candidateCount: candidates.length,
-      questions,
+      source: 'wikipedia-es', level, requestedCount, historyRelaxed, categoryErrors,
+      candidateCount: candidates.length, questions,
     });
   } catch (error) {
     console.error(error);
