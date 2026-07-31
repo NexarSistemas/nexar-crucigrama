@@ -77,14 +77,23 @@ function render(){
     return options[(options.indexOf(activeWord)+1)%options.length];
   }
 
-  function moveWithinActive(input,delta){
+  function moveWithinActive(input,delta,skipFilled=false){
     if(!activeWord)return;
     const key=cellKey(Number(input.dataset.r),Number(input.dataset.c));
     const keys=wordCells.get(activeWord);
     const index=keys.indexOf(key);
     if(index<0)return;
-    const target=keys[index+delta];
-    if(target) inputForKey(target)?.focus();
+
+    let next=index+delta;
+    while(next>=0&&next<keys.length){
+      const target=inputForKey(keys[next]);
+      if(!target)return;
+      if(!skipFilled||!target.value){
+        target.focus();
+        return;
+      }
+      next+=delta;
+    }
   }
 
   game.grid.forEach((row,r)=>row.forEach((letter,c)=>{
@@ -125,13 +134,13 @@ function render(){
     input.addEventListener('input',e=>{
       e.target.value=e.target.value.toUpperCase().replace(/[^A-ZÑ]/g,'');
       updateProgress();
-      if(e.target.value) moveWithinActive(e.target,1);
+      if(e.target.value) moveWithinActive(e.target,1,true);
     });
 
     input.addEventListener('keydown',e=>{
       if(e.key==='Backspace'&&!e.target.value){
         e.preventDefault();
-        moveWithinActive(e.target,-1);
+        moveWithinActive(e.target,-1,false);
         const focused=document.activeElement;
         if(focused?.classList?.contains('celda')){
           focused.value='';
