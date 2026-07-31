@@ -1,19 +1,30 @@
 (()=>{
 const $=s=>document.querySelector(s);
-let level='facil',game=null,score=Number(localStorage.getItem('nexar_crossword_score')||0);
+let level='facil',game=null,score=Number(localStorage.getItem('nexar_crossword_score')||0),loadToken=0;
 
 async function start(){
+  const token=++loadToken;
+  const requestedLevel=level;
   $('#mensaje').textContent='Cargando preguntas…';
-  const data=await QuestionSource.get(level);
-  const isRemote=data.source && data.source!=='local';
-  $('#origen').textContent=isRemote
-    ? `Preguntas dinámicas: ${data.source==='wikipedia-es'?'Wikipedia en español':data.source}`
-    : 'Modo local: usando banco de respaldo';
-  game=Crossword.build(data.questions,level);
-  if(!game){$('#mensaje').textContent='No se pudo generar el crucigrama.';return;}
-  if(isRemote&&typeof QuestionSource.markUsed==='function') QuestionSource.markUsed(game.words);
-  $('#mensaje').textContent=`Grilla ${game.size}×${game.size}`;
-  render();
+  try{
+    const data=await QuestionSource.get(requestedLevel);
+    if(token!==loadToken||requestedLevel!==level)return;
+    const isRemote=data.source && data.source!=='local';
+    $('#origen').textContent=isRemote
+      ? `Preguntas dinámicas: ${data.source==='wikipedia-es'?'Wikipedia en español':data.source}`
+      : 'Modo local: usando banco de respaldo';
+    const nextGame=Crossword.build(data.questions,requestedLevel);
+    if(token!==loadToken||requestedLevel!==level)return;
+    game=nextGame;
+    if(!game){$('#mensaje').textContent='No se pudo generar el crucigrama.';return;}
+    if(isRemote&&typeof QuestionSource.markUsed==='function') QuestionSource.markUsed(game.words);
+    $('#mensaje').textContent=`Grilla ${game.size}×${game.size}`;
+    render();
+  }catch(error){
+    if(token!==loadToken)return;
+    console.error(error);
+    $('#mensaje').textContent='No se pudo cargar una nueva partida.';
+  }
 }
 
 function cellKey(r,c){return `${r}:${c}`;}

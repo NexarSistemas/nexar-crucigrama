@@ -146,7 +146,7 @@ function makeClue(title, extract, category, level) {
     if (level === 'pro' && f.province && f.founded) return `Ciudad de ${f.province}, fundada ${f.founded}.`;
     return '';
   }
-  if (category === 'Ríos de Argentina' && f.province) return `Río argentino vinculado con la provincia de ${f.province}.`;
+  if (category === 'Ríos de Argentina') return '';
   if (category === 'Montañas de Argentina' && f.province && f.elevation) return `Montaña de ${f.province}, de aproximadamente ${f.elevation} de altitud.`;
   if (category === 'Parques nacionales de Argentina' && f.province) return `Parque nacional argentino ubicado en ${f.province}.`;
   if (category === 'Escritores de Argentina') {
