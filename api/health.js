@@ -8,6 +8,7 @@ export default function handler(req, res) {
   res.status(200).json({
     ok: true,
     service: 'nexar-crucigrama',
-    openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+    questionSource: 'wikipedia-es',
+    openaiOptionalConfigured: Boolean(process.env.OPENAI_API_KEY),
   });
 }
