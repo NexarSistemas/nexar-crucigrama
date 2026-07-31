@@ -1,8 +1,89 @@
 window.Crossword = (() => {
-  const LEVELS = {
-    facil: { size: 6, target: 5, maxWord: 6, ideal: 4.5, seeds: 18, nodeLimit: 2600, branch: 4 },
-    medio: { size: 8, target: 8, maxWord: 8, ideal: 5.5, seeds: 26, nodeLimit: 5200, branch: 5 },
-    pro: { size: 15, target: 14, maxWord: 11, ideal: 7, seeds: 40, nodeLimit: 18000, branch: 6 },
+  const CONFIG = {
+    facil: { size: 6, minWords: 4, nodeLimit: 7000 },
+    medio: { size: 8, minWords: 7, nodeLimit: 18000 },
+    pro: { size: 15, minWords: 12, nodeLimit: 70000 },
+  };
+
+  // # = bloque negro, . = casilla de letra. Las plantillas son deliberadamente
+  // densas y simétricas para lograr un aspecto de crucigrama tradicional.
+  const TEMPLATES = {
+    facil: [
+      [
+        '...#..',
+        '......',
+        '..#...',
+        '...#..',
+        '......',
+        '..#...',
+      ],
+      [
+        '......',
+        '..#...',
+        '......',
+        '...#..',
+        '......',
+        '...#..',
+      ],
+    ],
+    medio: [
+      [
+        '...#....',
+        '........',
+        '..#...#.',
+        '........',
+        '.#...#..',
+        '........',
+        '....#...',
+        '........',
+      ],
+      [
+        '........',
+        '.#...#..',
+        '........',
+        '...#....',
+        '....#...',
+        '........',
+        '..#...#.',
+        '........',
+      ],
+    ],
+    pro: [
+      [
+        '.....#....#....',
+        '...............',
+        '..#....#....#..',
+        '...............',
+        '....#.....#....',
+        '#.............#',
+        '...#.......#...',
+        '...............',
+        '...#.......#...',
+        '#.............#',
+        '....#.....#....',
+        '...............',
+        '..#....#....#..',
+        '...............',
+        '....#....#.....',
+      ],
+      [
+        '....#.....#....',
+        '...............',
+        '.#....#.#....#.',
+        '...............',
+        '...#.......#...',
+        '...............',
+        '#....#...#....#',
+        '...............',
+        '#....#...#....#',
+        '...............',
+        '...#.......#...',
+        '...............',
+        '.#....#.#....#.',
+        '...............',
+        '....#.....#....',
+      ],
+    ],
   };
 
   const shuffle = items => {
@@ -14,238 +95,187 @@ window.Crossword = (() => {
     return copy;
   };
 
-  const cloneGrid = grid => grid.map(row => row.map(cell => cell ? { letter: cell.letter, dirs: new Set(cell.dirs) } : null));
+  function parseTemplate(lines) {
+    return lines.map(line => [...line].map(ch => ch === '#' ? '#' : null));
+  }
 
-  function cellsFor(word, row, col, dir) {
-    return [...word.a].map((letter, i) => ({
-      r: row + (dir === 'V' ? i : 0),
-      c: col + (dir === 'H' ? i : 0),
-      letter,
+  function collectSlots(template) {
+    const size = template.length;
+    const slots = [];
+    let id = 0;
+
+    for (let r = 0; r < size; r++) {
+      let c = 0;
+      while (c < size) {
+        while (c < size && template[r][c] === '#') c++;
+        const start = c;
+        while (c < size && template[r][c] !== '#') c++;
+        const length = c - start;
+        if (length >= 3) slots.push({ id: id++, row: r, col: start, dir: 'H', length });
+      }
+    }
+
+    for (let c = 0; c < size; c++) {
+      let r = 0;
+      while (r < size) {
+        while (r < size && template[r][c] === '#') r++;
+        const start = r;
+        while (r < size && template[r][c] !== '#') r++;
+        const length = r - start;
+        if (length >= 3) slots.push({ id: id++, row: start, col: c, dir: 'V', length });
+      }
+    }
+
+    return slots;
+  }
+
+  function slotCells(slot) {
+    return Array.from({ length: slot.length }, (_, i) => ({
+      r: slot.row + (slot.dir === 'V' ? i : 0),
+      c: slot.col + (slot.dir === 'H' ? i : 0),
     }));
   }
 
-  function inspectPlacement(grid, word, row, col, dir, requireCross = true) {
-    const size = grid.length;
-    const cells = cellsFor(word, row, col, dir);
-    let crosses = 0;
-    let fresh = 0;
-
-    for (const { r, c, letter } of cells) {
-      if (r < 0 || c < 0 || r >= size || c >= size) return null;
-      const cell = grid[r][c];
-      if (!cell) {
-        fresh++;
-        continue;
-      }
-      if (cell.letter !== letter) return null;
-      if (cell.dirs.has(dir)) return null;
-      crosses++;
-    }
-
-    if (requireCross && crosses === 0) return null;
-
-    const before = dir === 'H' ? [row, col - 1] : [row - 1, col];
-    const after = dir === 'H' ? [row, col + word.a.length] : [row + word.a.length, col];
-    for (const [r, c] of [before, after]) {
-      if (r >= 0 && c >= 0 && r < size && c < size && grid[r][c]) return null;
-    }
-
-    // No permite formar palabras paralelas accidentales. Las casillas contiguas
-    // solamente pueden tocarse en un cruce real ya existente.
-    for (const { r, c } of cells) {
-      if (grid[r][c]) continue;
-      if (dir === 'H') {
-        if ((r > 0 && grid[r - 1][c]) || (r < size - 1 && grid[r + 1][c])) return null;
-      } else {
-        if ((c > 0 && grid[r][c - 1]) || (c < size - 1 && grid[r][c + 1])) return null;
-      }
-    }
-
-    return { crosses, fresh };
+  function fits(grid, slot, answer) {
+    if (answer.length !== slot.length) return false;
+    return slotCells(slot).every(({ r, c }, i) => grid[r][c] == null || grid[r][c] === answer[i]);
   }
 
-  function place(grid, word, row, col, dir) {
-    for (const { r, c, letter } of cellsFor(word, row, col, dir)) {
-      if (!grid[r][c]) grid[r][c] = { letter, dirs: new Set([dir]) };
-      else grid[r][c].dirs.add(dir);
-    }
-    return { ...word, row, col, dir };
-  }
-
-  function placementsFor(grid, word) {
-    const size = grid.length;
-    const out = [];
-
-    for (let r = 0; r < size; r++) {
-      for (let c = 0; c < size; c++) {
-        const cell = grid[r][c];
-        if (!cell) continue;
-        for (let i = 0; i < word.a.length; i++) {
-          if (word.a[i] !== cell.letter) continue;
-          for (const dir of ['H', 'V']) {
-            if (cell.dirs.has(dir)) continue;
-            const row = dir === 'V' ? r - i : r;
-            const col = dir === 'H' ? c - i : c;
-            const info = inspectPlacement(grid, word, row, col, dir, true);
-            if (!info) continue;
-
-            const center = (size - 1) / 2;
-            const endR = row + (dir === 'V' ? word.a.length - 1 : 0);
-            const endC = col + (dir === 'H' ? word.a.length - 1 : 0);
-            const midR = (row + endR) / 2;
-            const midC = (col + endC) / 2;
-            const centerDistance = Math.abs(midR - center) + Math.abs(midC - center);
-            const score = info.crosses * 60 + info.fresh * 1.5 - centerDistance * 1.3;
-            out.push({ row, col, dir, ...info, score });
-          }
-        }
+  function writeWord(grid, slot, answer) {
+    const changed = [];
+    slotCells(slot).forEach(({ r, c }, i) => {
+      if (grid[r][c] == null) {
+        grid[r][c] = answer[i];
+        changed.push([r, c]);
       }
-    }
-
-    const dedup = new Map();
-    for (const p of out) dedup.set(`${p.row}:${p.col}:${p.dir}`, p);
-    return [...dedup.values()].sort((a, b) => b.score - a.score || Math.random() - 0.5);
-  }
-
-  function metrics(grid, words) {
-    let occupied = 0;
-    let intersections = 0;
-    let minR = grid.length, maxR = -1, minC = grid.length, maxC = -1;
-
-    for (let r = 0; r < grid.length; r++) {
-      for (let c = 0; c < grid.length; c++) {
-        const cell = grid[r][c];
-        if (!cell) continue;
-        occupied++;
-        if (cell.dirs.size > 1) intersections++;
-        minR = Math.min(minR, r); maxR = Math.max(maxR, r);
-        minC = Math.min(minC, c); maxC = Math.max(maxC, c);
-      }
-    }
-
-    if (!occupied) return { score: -Infinity };
-    const spanR = maxR - minR + 1;
-    const spanC = maxC - minC + 1;
-    const bbox = spanR * spanC;
-    const density = occupied / bbox;
-    const coverage = bbox / (grid.length * grid.length);
-    const h = words.filter(w => w.dir === 'H').length;
-    const v = words.length - h;
-    const balance = words.length ? 1 - Math.abs(h - v) / words.length : 0;
-
-    // La cantidad de palabras es la prioridad principal. Después se premian
-    // los cruces, el equilibrio H/V y el uso compacto de la grilla.
-    const score = words.length * 520
-      + intersections * 95
-      + balance * 220
-      + density * 130
-      + coverage * 80
-      + occupied;
-
-    return { score, occupied, intersections, density, coverage, balance };
-  }
-
-  function orderedForSeed(words, cfg) {
-    return shuffle(words).sort((a, b) => {
-      const da = Math.abs(a.a.length - cfg.ideal);
-      const db = Math.abs(b.a.length - cfg.ideal);
-      return da - db || Math.random() - 0.5;
     });
+    return changed;
   }
 
-  function seedState(words, cfg, seedIndex) {
-    const grid = Array.from({ length: cfg.size }, () => Array(cfg.size).fill(null));
-    const candidates = orderedForSeed(words, cfg);
-    const first = candidates[seedIndex % candidates.length];
-    if (!first) return null;
-
-    const dir = seedIndex % 2 ? 'V' : 'H';
-    const row = dir === 'H' ? Math.floor(cfg.size / 2) : Math.floor((cfg.size - first.a.length) / 2);
-    const col = dir === 'H' ? Math.floor((cfg.size - first.a.length) / 2) : Math.floor(cfg.size / 2);
-    if (!inspectPlacement(grid, first, row, col, dir, false)) return null;
-
-    return {
-      grid,
-      placed: [place(grid, first, row, col, dir)],
-      remaining: candidates.filter(w => w !== first),
-    };
+  function undo(grid, changed) {
+    changed.forEach(([r, c]) => { grid[r][c] = null; });
   }
 
-  function search(seed, cfg) {
-    let best = seed;
-    let bestMetrics = metrics(seed.grid, seed.placed);
+  function candidatesFor(grid, slot, words, used) {
+    return words.filter((word, idx) => !used.has(idx) && fits(grid, slot, word.a));
+  }
+
+  function fillTemplate(items, lines, cfg) {
+    const template = parseTemplate(lines);
+    const slots = collectSlots(template);
+    const words = shuffle(items)
+      .filter(w => w?.a && w.a.length >= 3 && w.a.length <= cfg.size)
+      .filter((w, i, arr) => arr.findIndex(x => x.a === w.a) === i);
+
+    if (!words.length || !slots.length) return null;
+
+    const byLength = new Map();
+    words.forEach((word, idx) => {
+      if (!byLength.has(word.a.length)) byLength.set(word.a.length, []);
+      byLength.get(word.a.length).push(idx);
+    });
+
+    // Si una plantilla exige demasiadas longitudes que ni siquiera existen,
+    // se descarta antes de entrar al backtracking.
+    const feasibleSlots = slots.filter(slot => byLength.has(slot.length));
+    if (feasibleSlots.length < cfg.minWords) return null;
+
+    const grid = template.map(row => row.map(cell => cell === '#' ? '#' : null));
+    const used = new Set();
+    const assigned = new Map();
+    let bestAssigned = new Map();
+    let bestGrid = grid.map(row => [...row]);
     let nodes = 0;
 
-    function visit(state) {
+    function chooseSlot() {
+      let best = null;
+      for (const slot of feasibleSlots) {
+        if (assigned.has(slot.id)) continue;
+        const pool = candidatesFor(grid, slot, words, used);
+        if (!pool.length) continue;
+        if (!best || pool.length < best.pool.length) best = { slot, pool };
+      }
+      return best;
+    }
+
+    function visit() {
       if (++nodes > cfg.nodeLimit) return;
-
-      const currentMetrics = metrics(state.grid, state.placed);
-      if (currentMetrics.score > bestMetrics.score) {
-        best = state;
-        bestMetrics = currentMetrics;
+      if (assigned.size > bestAssigned.size) {
+        bestAssigned = new Map(assigned);
+        bestGrid = grid.map(row => [...row]);
       }
-      if (state.placed.length >= cfg.target) return;
+      if (assigned.size >= feasibleSlots.length) return;
 
-      const ranked = [];
-      for (const word of state.remaining) {
-        const placements = placementsFor(state.grid, word);
-        if (!placements.length) continue;
-        const lengthFit = 18 - Math.abs(word.a.length - cfg.ideal) * 2;
-        ranked.push({
-          word,
-          placements,
-          potential: placements[0].score + placements.length * 3 + lengthFit,
-        });
-      }
+      const choice = chooseSlot();
+      if (!choice) return;
 
-      // Elegir primero las palabras que tienen varios lugares de cruce evita
-      // encerrarse demasiado pronto en tres palabras largas.
-      ranked.sort((a, b) => b.potential - a.potential || Math.random() - 0.5);
+      const ordered = shuffle(choice.pool).sort((a, b) => {
+        const wa = words[a], wb = words[b];
+        const ca = slotCells(choice.slot).filter(({ r, c }, i) => grid[r][c] === wa.a[i]).length;
+        const cb = slotCells(choice.slot).filter(({ r, c }, i) => grid[r][c] === wb.a[i]).length;
+        return cb - ca;
+      });
 
-      for (const choice of ranked.slice(0, cfg.branch)) {
-        for (const p of choice.placements.slice(0, cfg.branch)) {
-          const grid = cloneGrid(state.grid);
-          const placedWord = place(grid, choice.word, p.row, p.col, p.dir);
-          visit({
-            grid,
-            placed: [...state.placed, placedWord],
-            remaining: state.remaining.filter(w => w !== choice.word),
-          });
-          if (nodes > cfg.nodeLimit) return;
-        }
+      for (const word of ordered) {
+        const idx = words.indexOf(word);
+        if (idx < 0 || used.has(idx)) continue;
+        const changed = writeWord(grid, choice.slot, word.a);
+        used.add(idx);
+        assigned.set(choice.slot.id, { slot: choice.slot, word });
+        visit();
+        assigned.delete(choice.slot.id);
+        used.delete(idx);
+        undo(grid, changed);
+        if (nodes > cfg.nodeLimit) return;
       }
     }
 
-    visit(seed);
-    return { state: best, metrics: bestMetrics };
+    visit();
+    if (bestAssigned.size < cfg.minWords) return null;
+
+    // Las casillas blancas no utilizadas se convierten en bloques negros.
+    const usedCells = new Set();
+    const placed = [];
+    for (const { slot, word } of bestAssigned.values()) {
+      slotCells(slot).forEach(({ r, c }) => usedCells.add(`${r}:${c}`));
+      placed.push({ ...word, row: slot.row, col: slot.col, dir: slot.dir });
+    }
+
+    const finalGrid = bestGrid.map((row, r) => row.map((cell, c) => {
+      if (cell === '#') return null;
+      return usedCells.has(`${r}:${c}`) ? cell : null;
+    }));
+
+    const h = placed.filter(w => w.dir === 'H').length;
+    const v = placed.length - h;
+    return {
+      grid: finalGrid,
+      words: placed,
+      size: cfg.size,
+      stats: {
+        words: placed.length,
+        horizontal: h,
+        vertical: v,
+        templateSlots: slots.length,
+        fillRatio: placed.length / slots.length,
+      },
+    };
   }
 
   function build(items, level = 'facil') {
-    const cfg = LEVELS[level] || LEVELS.facil;
-    const usable = items
-      .filter(w => w?.a && w.a.length >= 3 && w.a.length <= cfg.maxWord)
-      .filter((w, i, arr) => arr.findIndex(x => x.a === w.a) === i);
-    if (!usable.length) return null;
+    const cfg = CONFIG[level] || CONFIG.facil;
+    let best = null;
 
-    let globalBest = null;
-    const seedCount = Math.min(cfg.seeds, usable.length * 2);
-
-    for (let seedIndex = 0; seedIndex < seedCount; seedIndex++) {
-      const seed = seedState(usable, cfg, seedIndex);
-      if (!seed) continue;
-      const result = search(seed, cfg);
-      if (!globalBest || result.metrics.score > globalBest.metrics.score) globalBest = result;
-      if (result.state.placed.length >= cfg.target && result.metrics.balance >= 0.7) break;
+    for (const lines of shuffle(TEMPLATES[level] || TEMPLATES.facil)) {
+      const result = fillTemplate(items, lines, cfg);
+      if (!result) continue;
+      if (!best || result.words.length > best.words.length ||
+          (result.words.length === best.words.length && Math.abs(result.stats.horizontal - result.stats.vertical) < Math.abs(best.stats.horizontal - best.stats.vertical))) {
+        best = result;
+      }
     }
 
-    if (!globalBest) return null;
-    const outGrid = globalBest.state.grid.map(row => row.map(cell => cell?.letter || null));
-    return {
-      grid: outGrid,
-      words: globalBest.state.placed,
-      size: cfg.size,
-      stats: globalBest.metrics,
-    };
+    return best;
   }
 
   return { build };
