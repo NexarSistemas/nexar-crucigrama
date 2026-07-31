@@ -47,29 +47,46 @@ window.QuestionSource = (() => {
     }
   }
 
+  async function request(level, excluded) {
+    const params = new URLSearchParams({ level });
+    if (excluded.length) params.set('exclude', excluded.join(','));
+
+    const apiBase = window.NEXAR_QUESTIONS_API_URL || '/api/questions';
+    const separator = apiBase.includes('?') ? '&' : '?';
+    const response = await fetch(`${apiBase}${separator}${params.toString()}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`API ${response.status}`);
+
+    const data = await response.json();
+    if (!Array.isArray(data.questions) || data.questions.length < 6) throw new Error('Respuesta incompleta');
+
+    const questions = data.questions
+      .map(item => ({ q: String(item.question || '').trim(), a: normalize(item.answer) }))
+      .filter(item => item.q && item.a.length >= 3);
+
+    if (questions.length < 6) throw new Error('Preguntas inválidas');
+    return { source: data.source || 'cloud', questions };
+  }
+
   async function get(level) {
+    const history = readHistory();
+
     try {
-      const history = readHistory();
-      const params = new URLSearchParams({ level });
-      if (history.length) params.set('exclude', history.join(','));
+      const result = await request(level, history);
+      saveHistory(result.questions);
+      return result;
+    } catch (firstError) {
+      if (history.length) {
+        try {
+          const relaxedHistory = history.slice(Math.ceil(history.length / 2));
+          const result = await request(level, relaxedHistory);
+          saveHistory(result.questions);
+          return result;
+        } catch (secondError) {
+          console.warn('Wikipedia falló también con historial relajado.', secondError);
+        }
+      }
 
-      const apiBase = window.NEXAR_QUESTIONS_API_URL || '/api/questions';
-      const separator = apiBase.includes('?') ? '&' : '?';
-      const response = await fetch(`${apiBase}${separator}${params.toString()}`, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`API ${response.status}`);
-
-      const data = await response.json();
-      if (!Array.isArray(data.questions) || data.questions.length < 6) throw new Error('Respuesta incompleta');
-
-      const questions = data.questions
-        .map(item => ({ q: String(item.question || '').trim(), a: normalize(item.answer) }))
-        .filter(item => item.q && item.a.length >= 3);
-
-      if (questions.length < 6) throw new Error('Preguntas inválidas');
-      saveHistory(questions);
-      return { source: data.source || 'cloud', questions };
-    } catch (error) {
-      console.warn('No se pudo cargar preguntas desde la nube. Se usa respaldo local.', error);
+      console.warn('No se pudo cargar preguntas desde la nube. Se usa respaldo local.', firstError);
       return { source: 'local', questions: [...fallback].sort(() => Math.random() - 0.5) };
     }
   }
