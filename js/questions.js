@@ -69,26 +69,25 @@ window.QuestionSource = (() => {
 
   async function get(level) {
     const history = readHistory();
+    let lastError = null;
 
-    try {
-      const result = await request(level, history);
-      saveHistory(result.questions);
-      return result;
-    } catch (firstError) {
-      if (history.length) {
-        try {
-          const relaxedHistory = history.slice(Math.ceil(history.length / 2));
-          const result = await request(level, relaxedHistory);
-          saveHistory(result.questions);
-          return result;
-        } catch (secondError) {
-          console.warn('Wikipedia falló también con historial relajado.', secondError);
-        }
+    const attempts = history.length
+      ? [history, history.slice(Math.ceil(history.length / 2)), []]
+      : [[]];
+
+    for (const excluded of attempts) {
+      try {
+        const result = await request(level, excluded);
+        saveHistory(result.questions);
+        return result;
+      } catch (error) {
+        lastError = error;
+        console.warn(`Wikipedia no respondió con exclusión de ${excluded.length} respuestas.`, error);
       }
-
-      console.warn('No se pudo cargar preguntas desde la nube. Se usa respaldo local.', firstError);
-      return { source: 'local', questions: [...fallback].sort(() => Math.random() - 0.5) };
     }
+
+    console.warn('No se pudo cargar preguntas desde Wikipedia. Se usa respaldo local.', lastError);
+    return { source: 'local', questions: [...fallback].sort(() => Math.random() - 0.5) };
   }
 
   return { get };
