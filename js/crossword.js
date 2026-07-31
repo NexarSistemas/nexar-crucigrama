@@ -167,13 +167,12 @@ window.Crossword = (() => {
     };
   }
 
-  function search(seed, cfg) {
+  function search(seed, cfg, budget) {
     let best = seed;
     let bestMetrics = metrics(seed.grid, seed.placed);
-    let nodes = 0;
 
     function visit(state) {
-      if (++nodes > cfg.nodeLimit) return;
+      if (++budget.nodes > budget.limit) return;
 
       const currentMetrics = metrics(state.grid, state.placed);
       if (currentMetrics.score > bestMetrics.score) {
@@ -198,6 +197,7 @@ window.Crossword = (() => {
 
       for (const choice of ranked.slice(0, cfg.branch)) {
         for (const p of choice.placements.slice(0, cfg.branch)) {
+          if (budget.nodes >= budget.limit) return;
           const grid = cloneGrid(state.grid);
           const placedWord = place(grid, choice.word, p.row, p.col, p.dir);
           visit({
@@ -205,7 +205,6 @@ window.Crossword = (() => {
             placed: [...state.placed, placedWord],
             remaining: state.remaining.filter(w => w !== choice.word),
           });
-          if (nodes > cfg.nodeLimit) return;
         }
       }
     }
@@ -223,11 +222,12 @@ window.Crossword = (() => {
 
     let globalBest = null;
     const seedCount = Math.min(cfg.seeds, usable.length * 2);
+    const budget = { nodes: 0, limit: cfg.nodeLimit };
 
-    for (let seedIndex = 0; seedIndex < seedCount; seedIndex++) {
+    for (let seedIndex = 0; seedIndex < seedCount && budget.nodes < budget.limit; seedIndex++) {
       const seed = seedState(usable, cfg, seedIndex);
       if (!seed) continue;
-      const result = search(seed, cfg);
+      const result = search(seed, cfg, budget);
       if (!globalBest || result.metrics.score > globalBest.metrics.score) globalBest = result;
       if (result.state.placed.length >= cfg.target && result.metrics.balance >= 0.7) break;
     }
@@ -238,7 +238,7 @@ window.Crossword = (() => {
       grid: outGrid,
       words: globalBest.state.placed,
       size: cfg.size,
-      stats: globalBest.metrics,
+      stats: { ...globalBest.metrics, searchNodes: budget.nodes },
     };
   }
 
