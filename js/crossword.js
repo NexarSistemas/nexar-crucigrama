@@ -1,8 +1,8 @@
 window.Crossword = (() => {
   const LEVELS = {
-    facil: { size: 6, target: 5, maxWord: 6, seeds: 14, nodeLimit: 1800, branch: 3 },
-    medio: { size: 8, target: 8, maxWord: 8, seeds: 20, nodeLimit: 3200, branch: 4 },
-    pro: { size: 15, target: 16, maxWord: 11, seeds: 28, nodeLimit: 9000, branch: 5 },
+    facil: { size: 6, target: 5, maxWord: 6, ideal: 4.5, seeds: 18, nodeLimit: 2600, branch: 4 },
+    medio: { size: 8, target: 8, maxWord: 8, ideal: 5.5, seeds: 26, nodeLimit: 5200, branch: 5 },
+    pro: { size: 15, target: 14, maxWord: 11, ideal: 7, seeds: 40, nodeLimit: 18000, branch: 6 },
   };
 
   const shuffle = items => {
@@ -14,7 +14,7 @@ window.Crossword = (() => {
     return copy;
   };
 
-  const cloneGrid = grid => grid.map(row => row.map(cell => cell ? { ...cell } : null));
+  const cloneGrid = grid => grid.map(row => row.map(cell => cell ? { letter: cell.letter, dirs: new Set(cell.dirs) } : null));
 
   function cellsFor(word, row, col, dir) {
     return [...word.a].map((letter, i) => ({
@@ -50,6 +50,8 @@ window.Crossword = (() => {
       if (r >= 0 && c >= 0 && r < size && c < size && grid[r][c]) return null;
     }
 
+    // No permite formar palabras paralelas accidentales. Las casillas contiguas
+    // solamente pueden tocarse en un cruce real ya existente.
     for (const { r, c } of cells) {
       if (grid[r][c]) continue;
       if (dir === 'H') {
@@ -86,14 +88,14 @@ window.Crossword = (() => {
             const col = dir === 'H' ? c - i : c;
             const info = inspectPlacement(grid, word, row, col, dir, true);
             if (!info) continue;
+
             const center = (size - 1) / 2;
             const endR = row + (dir === 'V' ? word.a.length - 1 : 0);
             const endC = col + (dir === 'H' ? word.a.length - 1 : 0);
             const midR = (row + endR) / 2;
             const midC = (col + endC) / 2;
             const centerDistance = Math.abs(midR - center) + Math.abs(midC - center);
-            const edgeTouch = [row, col, endR, endC].filter(v => v === 0 || v === size - 1).length;
-            const score = info.crosses * 36 + info.fresh * 2 - centerDistance * 0.8 + edgeTouch * 2;
+            const score = info.crosses * 60 + info.fresh * 1.5 - centerDistance * 1.3;
             out.push({ row, col, dir, ...info, score });
           }
         }
@@ -131,25 +133,37 @@ window.Crossword = (() => {
     const v = words.length - h;
     const balance = words.length ? 1 - Math.abs(h - v) / words.length : 0;
 
-    const score = words.length * 180
-      + intersections * 34
-      + occupied * 2
-      + density * 150
-      + coverage * 90
-      + balance * 120;
+    // La cantidad de palabras es la prioridad principal. Después se premian
+    // los cruces, el equilibrio H/V y el uso compacto de la grilla.
+    const score = words.length * 520
+      + intersections * 95
+      + balance * 220
+      + density * 130
+      + coverage * 80
+      + occupied;
 
     return { score, occupied, intersections, density, coverage, balance };
   }
 
+  function orderedForSeed(words, cfg) {
+    return shuffle(words).sort((a, b) => {
+      const da = Math.abs(a.a.length - cfg.ideal);
+      const db = Math.abs(b.a.length - cfg.ideal);
+      return da - db || Math.random() - 0.5;
+    });
+  }
+
   function seedState(words, cfg, seedIndex) {
     const grid = Array.from({ length: cfg.size }, () => Array(cfg.size).fill(null));
-    const candidates = shuffle(words).sort((a, b) => b.a.length - a.a.length || Math.random() - 0.5);
-    const first = candidates[seedIndex % Math.min(candidates.length, cfg.seeds)];
+    const candidates = orderedForSeed(words, cfg);
+    const first = candidates[seedIndex % candidates.length];
     if (!first) return null;
+
     const dir = seedIndex % 2 ? 'V' : 'H';
     const row = dir === 'H' ? Math.floor(cfg.size / 2) : Math.floor((cfg.size - first.a.length) / 2);
     const col = dir === 'H' ? Math.floor((cfg.size - first.a.length) / 2) : Math.floor(cfg.size / 2);
     if (!inspectPlacement(grid, first, row, col, dir, false)) return null;
+
     return {
       grid,
       placed: [place(grid, first, row, col, dir)],
@@ -164,6 +178,7 @@ window.Crossword = (() => {
 
     function visit(state) {
       if (++nodes > cfg.nodeLimit) return;
+
       const currentMetrics = metrics(state.grid, state.placed);
       if (currentMetrics.score > bestMetrics.score) {
         best = state;
@@ -175,19 +190,21 @@ window.Crossword = (() => {
       for (const word of state.remaining) {
         const placements = placementsFor(state.grid, word);
         if (!placements.length) continue;
-        ranked.push({ word, placements, potential: placements[0].score + placements.length * 1.5 });
+        const lengthFit = 18 - Math.abs(word.a.length - cfg.ideal) * 2;
+        ranked.push({
+          word,
+          placements,
+          potential: placements[0].score + placements.length * 3 + lengthFit,
+        });
       }
+
+      // Elegir primero las palabras que tienen varios lugares de cruce evita
+      // encerrarse demasiado pronto en tres palabras largas.
       ranked.sort((a, b) => b.potential - a.potential || Math.random() - 0.5);
 
       for (const choice of ranked.slice(0, cfg.branch)) {
         for (const p of choice.placements.slice(0, cfg.branch)) {
           const grid = cloneGrid(state.grid);
-          // Restaurar Sets después de clonar objetos.
-          for (let r = 0; r < grid.length; r++) {
-            for (let c = 0; c < grid.length; c++) {
-              if (grid[r][c]) grid[r][c].dirs = new Set(state.grid[r][c].dirs);
-            }
-          }
           const placedWord = place(grid, choice.word, p.row, p.col, p.dir);
           visit({
             grid,
@@ -212,12 +229,13 @@ window.Crossword = (() => {
 
     let globalBest = null;
     const seedCount = Math.min(cfg.seeds, usable.length * 2);
+
     for (let seedIndex = 0; seedIndex < seedCount; seedIndex++) {
       const seed = seedState(usable, cfg, seedIndex);
       if (!seed) continue;
       const result = search(seed, cfg);
       if (!globalBest || result.metrics.score > globalBest.metrics.score) globalBest = result;
-      if (result.state.placed.length >= cfg.target && result.metrics.balance > 0.7 && result.metrics.density > 0.45) break;
+      if (result.state.placed.length >= cfg.target && result.metrics.balance >= 0.7) break;
     }
 
     if (!globalBest) return null;
