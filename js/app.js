@@ -11,6 +11,7 @@ async function start(){
     : 'Modo local: usando banco de respaldo';
   game=Crossword.build(data.questions,level);
   if(!game){$('#mensaje').textContent='No se pudo generar el crucigrama.';return;}
+  if(isRemote&&typeof QuestionSource.markUsed==='function') QuestionSource.markUsed(game.words);
   $('#mensaje').textContent=`Grilla ${game.size}×${game.size}`;
   render();
 }
