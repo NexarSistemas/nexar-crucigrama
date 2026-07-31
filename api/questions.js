@@ -87,10 +87,6 @@ function makeClue(title, extract, category) {
     /provincia de ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
     /provincia argentina de ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
   ]);
-  const department = matchFirst(text, [
-    /departamento de ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
-    /departamento homónimo/u,
-  ]);
   const river = matchFirst(text, [
     /río ([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ .'-]{2,40})[,.;]/u,
   ]);
@@ -172,14 +168,21 @@ function makeClue(title, extract, category) {
 async function wikipedia(params) {
   const url = new URL(WIKIPEDIA_API);
   url.search = new URLSearchParams({ format: 'json', origin: '*', ...params }).toString();
-  const response = await fetch(url, {
-    headers: { 'User-Agent': 'NexarCrucigrama/1.0 (educational crossword; contact via GitHub)' },
-  });
-  if (!response.ok) throw new Error(`wikipedia_${response.status}`);
-  return response.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4500);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'NexarCrucigrama/1.0 (educational crossword; contact via GitHub)' },
+    });
+    if (!response.ok) throw new Error(`wikipedia_${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-async function getCategoryTitles(category, limit = 50) {
+async function getCategoryTitles(category, limit = 30) {
   const data = await wikipedia({
     action: 'query',
     list: 'categorymembers',
@@ -192,21 +195,15 @@ async function getCategoryTitles(category, limit = 50) {
 
 async function getExtracts(titles) {
   if (!titles.length) return [];
-  const chunks = [];
-  for (let i = 0; i < titles.length; i += 20) chunks.push(titles.slice(i, i + 20));
-  const pages = [];
-  for (const chunk of chunks) {
-    const data = await wikipedia({
-      action: 'query',
-      prop: 'extracts',
-      exintro: '1',
-      explaintext: '1',
-      redirects: '1',
-      titles: chunk.join('|'),
-    });
-    pages.push(...Object.values(data.query?.pages || {}).map(page => ({ title: page.title, extract: page.extract || '' })));
-  }
-  return pages;
+  const data = await wikipedia({
+    action: 'query',
+    prop: 'extracts',
+    exintro: '1',
+    explaintext: '1',
+    redirects: '1',
+    titles: titles.slice(0, 25).join('|'),
+  });
+  return Object.values(data.query?.pages || {}).map(page => ({ title: page.title, extract: page.extract || '' }));
 }
 
 function send(res, status, body) {
@@ -236,11 +233,24 @@ export default async function handler(req, res) {
   try {
     const categories = shuffle(CATEGORY_POOLS[level]);
     const candidates = [];
+    const categoryErrors = [];
+    const targetCandidates = config.count * 3;
 
     for (const category of categories) {
-      const titles = shuffle(await getCategoryTitles(category, 50)).slice(0, 35);
-      const pages = await getExtracts(titles);
-      for (const page of pages) candidates.push({ ...page, category });
+      try {
+        const titles = shuffle(await getCategoryTitles(category, 30)).slice(0, 25);
+        const pages = await getExtracts(titles);
+        for (const page of pages) candidates.push({ ...page, category });
+      } catch (error) {
+        categoryErrors.push(category);
+        console.warn(`Wikipedia category skipped: ${category}`, error?.message || error);
+      }
+
+      if (candidates.length >= targetCandidates) break;
+    }
+
+    if (!candidates.length) {
+      return send(res, 502, { error: 'wikipedia_fetch_failed', categoryErrors });
     }
 
     function buildQuestions(excluded) {
@@ -278,17 +288,23 @@ export default async function handler(req, res) {
     }
 
     if (questions.length < 6) {
-      return send(res, 502, { error: 'insufficient_wikipedia_questions', generated: questions.length });
+      return send(res, 502, {
+        error: 'insufficient_wikipedia_questions',
+        generated: questions.length,
+        candidates: candidates.length,
+        categoryErrors,
+      });
     }
 
     return send(res, 200, {
       source: 'wikipedia-es',
       level,
       historyRelaxed,
+      categoryErrors,
       questions,
     });
   } catch (error) {
     console.error(error);
-    return send(res, 502, { error: 'wikipedia_fetch_failed' });
+    return send(res, 502, { error: 'wikipedia_fetch_failed', detail: error?.message || 'unknown' });
   }
 }
