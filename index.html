@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexar Crucigrama</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div>
+        <p class="eyebrow">Nexar Sistemas</p>
+        <h1>🧉 Crucigrama Argentino</h1>
+      </div>
+      <div class="niveles" id="niveles">
+        <button data-nivel="facil" class="activo">Fácil</button>
+        <button data-nivel="medio">Medio</button>
+        <button data-nivel="pro">Pro</button>
+      </div>
+    </header>
+
+    <section class="estado">
+      <span>🏆 Puntaje: <strong id="puntaje">0</strong></span>
+      <span>✅ Completado: <strong id="progreso">0%</strong></span>
+      <button id="nuevo">🔄 Nuevo</button>
+      <button id="verificar">✔ Verificar</button>
+    </section>
+
+    <p class="origen" id="origen">Cargando preguntas…</p>
+
+    <section class="juego">
+      <div class="tablero-wrap">
+        <div id="tablero" class="tablero" aria-label="Crucigrama"></div>
+      </div>
+      <aside id="pistas" class="pistas"></aside>
+    </section>
+
+    <p class="mensaje" id="mensaje" aria-live="polite"></p>
+  </main>
+
+  <script src="js/questions.js"></script>
+  <script src="js/crossword.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
