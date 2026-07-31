@@ -1,8 +1,8 @@
 window.Crossword = (() => {
   const LEVELS = {
-    facil: { size: 6, target: 5, attempts: 320, minLen: 3, maxLen: 6 },
-    medio: { size: 8, target: 8, attempts: 520, minLen: 4, maxLen: 8 },
-    pro: { size: 15, target: 14, attempts: 900, minLen: 4, maxLen: 11 },
+    facil: { size: 6, target: 5, maxWord: 6, seeds: 14, nodeLimit: 1800, branch: 3 },
+    medio: { size: 8, target: 8, maxWord: 8, seeds: 20, nodeLimit: 3200, branch: 4 },
+    pro: { size: 15, target: 16, maxWord: 11, seeds: 28, nodeLimit: 9000, branch: 5 },
   };
 
   const shuffle = items => {
@@ -14,8 +14,7 @@ window.Crossword = (() => {
     return copy;
   };
 
-  const makeGrid = size => Array.from({ length: size }, () => Array(size).fill(null));
-  const makeDirs = size => Array.from({ length: size }, () => Array.from({ length: size }, () => ({ H: false, V: false })));
+  const cloneGrid = grid => grid.map(row => row.map(cell => cell ? { ...cell } : null));
 
   function cellsFor(word, row, col, dir) {
     return [...word.a].map((letter, i) => ({
@@ -25,33 +24,22 @@ window.Crossword = (() => {
     }));
   }
 
-  function boundsOf(grid) {
-    const used = [];
-    for (let r = 0; r < grid.length; r++) {
-      for (let c = 0; c < grid.length; c++) if (grid[r][c]) used.push([r, c]);
-    }
-    if (!used.length) return null;
-    const rows = used.map(x => x[0]);
-    const cols = used.map(x => x[1]);
-    return {
-      r0: Math.min(...rows), r1: Math.max(...rows),
-      c0: Math.min(...cols), c1: Math.max(...cols),
-    };
-  }
-
-  function canPlace(grid, dirs, word, row, col, dir, requireCross = true) {
+  function inspectPlacement(grid, word, row, col, dir, requireCross = true) {
     const size = grid.length;
     const cells = cellsFor(word, row, col, dir);
     let crosses = 0;
-    let newCells = 0;
+    let fresh = 0;
 
     for (const { r, c, letter } of cells) {
       if (r < 0 || c < 0 || r >= size || c >= size) return null;
-      const current = grid[r][c];
-      if (current && current !== letter) return null;
-      if (dirs[r][c][dir]) return null;
-      if (current === letter) crosses++;
-      else newCells++;
+      const cell = grid[r][c];
+      if (!cell) {
+        fresh++;
+        continue;
+      }
+      if (cell.letter !== letter) return null;
+      if (cell.dirs.has(dir)) return null;
+      crosses++;
     }
 
     if (requireCross && crosses === 0) return null;
@@ -71,152 +59,175 @@ window.Crossword = (() => {
       }
     }
 
-    return { crosses, newCells };
+    return { crosses, fresh };
   }
 
-  function place(grid, dirs, word, row, col, dir) {
+  function place(grid, word, row, col, dir) {
     for (const { r, c, letter } of cellsFor(word, row, col, dir)) {
-      grid[r][c] = letter;
-      dirs[r][c][dir] = true;
+      if (!grid[r][c]) grid[r][c] = { letter, dirs: new Set([dir]) };
+      else grid[r][c].dirs.add(dir);
     }
     return { ...word, row, col, dir };
   }
 
-  function placementScore(grid, placed, word, placement) {
-    const { row, col, dir, crosses, newCells } = placement;
+  function placementsFor(grid, word) {
     const size = grid.length;
-    const center = (size - 1) / 2;
-    const midR = row + (dir === 'V' ? (word.a.length - 1) / 2 : 0);
-    const midC = col + (dir === 'H' ? (word.a.length - 1) / 2 : 0);
-    const distance = Math.abs(midR - center) + Math.abs(midC - center);
-
-    const h = placed.filter(w => w.dir === 'H').length;
-    const v = placed.length - h;
-    const balanceBonus = dir === 'H' ? Math.max(0, v - h) * 18 : Math.max(0, h - v) * 18;
-
-    const before = boundsOf(grid);
-    let expansion = 0;
-    if (before) {
-      const cells = cellsFor(word, row, col, dir);
-      const r0 = Math.min(before.r0, ...cells.map(x => x.r));
-      const r1 = Math.max(before.r1, ...cells.map(x => x.r));
-      const c0 = Math.min(before.c0, ...cells.map(x => x.c));
-      const c1 = Math.max(before.c1, ...cells.map(x => x.c));
-      const oldArea = (before.r1 - before.r0 + 1) * (before.c1 - before.c0 + 1);
-      const newArea = (r1 - r0 + 1) * (c1 - c0 + 1);
-      expansion = newArea - oldArea;
-    }
-
-    return crosses * 130 + newCells * 5 + balanceBonus - distance * 3 - expansion * 2;
-  }
-
-  function candidatePlacements(grid, dirs, placed, word) {
     const out = [];
-    const seen = new Set();
 
-    for (let r = 0; r < grid.length; r++) {
-      for (let c = 0; c < grid.length; c++) {
-        const letter = grid[r][c];
-        if (!letter) continue;
-
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        const cell = grid[r][c];
+        if (!cell) continue;
         for (let i = 0; i < word.a.length; i++) {
-          if (word.a[i] !== letter) continue;
+          if (word.a[i] !== cell.letter) continue;
           for (const dir of ['H', 'V']) {
-            const row = r - (dir === 'V' ? i : 0);
-            const col = c - (dir === 'H' ? i : 0);
-            const key = `${row}:${col}:${dir}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            const valid = canPlace(grid, dirs, word, row, col, dir, true);
-            if (!valid) continue;
-            out.push({ row, col, dir, ...valid });
+            if (cell.dirs.has(dir)) continue;
+            const row = dir === 'V' ? r - i : r;
+            const col = dir === 'H' ? c - i : c;
+            const info = inspectPlacement(grid, word, row, col, dir, true);
+            if (!info) continue;
+            const center = (size - 1) / 2;
+            const endR = row + (dir === 'V' ? word.a.length - 1 : 0);
+            const endC = col + (dir === 'H' ? word.a.length - 1 : 0);
+            const midR = (row + endR) / 2;
+            const midC = (col + endC) / 2;
+            const centerDistance = Math.abs(midR - center) + Math.abs(midC - center);
+            const edgeTouch = [row, col, endR, endC].filter(v => v === 0 || v === size - 1).length;
+            const score = info.crosses * 36 + info.fresh * 2 - centerDistance * 0.8 + edgeTouch * 2;
+            out.push({ row, col, dir, ...info, score });
           }
         }
       }
     }
 
-    return out
-      .map(p => ({ ...p, score: placementScore(grid, placed, word, p) }))
-      .sort((a, b) => b.score - a.score || Math.random() - 0.5);
+    const dedup = new Map();
+    for (const p of out) dedup.set(`${p.row}:${p.col}:${p.dir}`, p);
+    return [...dedup.values()].sort((a, b) => b.score - a.score || Math.random() - 0.5);
   }
 
-  function layoutScore(grid, dirs, placed) {
+  function metrics(grid, words) {
     let occupied = 0;
     let intersections = 0;
-    const usedRows = new Set();
-    const usedCols = new Set();
+    let minR = grid.length, maxR = -1, minC = grid.length, maxC = -1;
 
     for (let r = 0; r < grid.length; r++) {
       for (let c = 0; c < grid.length; c++) {
-        if (!grid[r][c]) continue;
+        const cell = grid[r][c];
+        if (!cell) continue;
         occupied++;
-        usedRows.add(r);
-        usedCols.add(c);
-        if (dirs[r][c].H && dirs[r][c].V) intersections++;
+        if (cell.dirs.size > 1) intersections++;
+        minR = Math.min(minR, r); maxR = Math.max(maxR, r);
+        minC = Math.min(minC, c); maxC = Math.max(maxC, c);
       }
     }
 
-    const bounds = boundsOf(grid);
-    const area = bounds ? (bounds.r1 - bounds.r0 + 1) * (bounds.c1 - bounds.c0 + 1) : grid.length * grid.length;
-    const density = area ? occupied / area : 0;
-    const h = placed.filter(w => w.dir === 'H').length;
-    const v = placed.length - h;
-    const balancePenalty = Math.abs(h - v) * 45;
-    const spread = usedRows.size + usedCols.size;
+    if (!occupied) return { score: -Infinity };
+    const spanR = maxR - minR + 1;
+    const spanC = maxC - minC + 1;
+    const bbox = spanR * spanC;
+    const density = occupied / bbox;
+    const coverage = bbox / (grid.length * grid.length);
+    const h = words.filter(w => w.dir === 'H').length;
+    const v = words.length - h;
+    const balance = words.length ? 1 - Math.abs(h - v) / words.length : 0;
 
-    return placed.length * 250 + intersections * 95 + density * 500 + spread * 18 - balancePenalty;
+    const score = words.length * 180
+      + intersections * 34
+      + occupied * 2
+      + density * 150
+      + coverage * 90
+      + balance * 120;
+
+    return { score, occupied, intersections, density, coverage, balance };
   }
 
-  function pickFirst(usable, cfg, attempt) {
-    const preferred = usable.filter(w => w.a.length >= Math.max(cfg.minLen, Math.floor(cfg.size * 0.35)) && w.a.length <= Math.min(cfg.maxLen, Math.ceil(cfg.size * 0.72)));
-    const pool = preferred.length ? preferred : usable;
-    return shuffle(pool)[attempt % pool.length];
+  function seedState(words, cfg, seedIndex) {
+    const grid = Array.from({ length: cfg.size }, () => Array(cfg.size).fill(null));
+    const candidates = shuffle(words).sort((a, b) => b.a.length - a.a.length || Math.random() - 0.5);
+    const first = candidates[seedIndex % Math.min(candidates.length, cfg.seeds)];
+    if (!first) return null;
+    const dir = seedIndex % 2 ? 'V' : 'H';
+    const row = dir === 'H' ? Math.floor(cfg.size / 2) : Math.floor((cfg.size - first.a.length) / 2);
+    const col = dir === 'H' ? Math.floor((cfg.size - first.a.length) / 2) : Math.floor(cfg.size / 2);
+    if (!inspectPlacement(grid, first, row, col, dir, false)) return null;
+    return {
+      grid,
+      placed: [place(grid, first, row, col, dir)],
+      remaining: candidates.filter(w => w !== first),
+    };
+  }
+
+  function search(seed, cfg) {
+    let best = seed;
+    let bestMetrics = metrics(seed.grid, seed.placed);
+    let nodes = 0;
+
+    function visit(state) {
+      if (++nodes > cfg.nodeLimit) return;
+      const currentMetrics = metrics(state.grid, state.placed);
+      if (currentMetrics.score > bestMetrics.score) {
+        best = state;
+        bestMetrics = currentMetrics;
+      }
+      if (state.placed.length >= cfg.target) return;
+
+      const ranked = [];
+      for (const word of state.remaining) {
+        const placements = placementsFor(state.grid, word);
+        if (!placements.length) continue;
+        ranked.push({ word, placements, potential: placements[0].score + placements.length * 1.5 });
+      }
+      ranked.sort((a, b) => b.potential - a.potential || Math.random() - 0.5);
+
+      for (const choice of ranked.slice(0, cfg.branch)) {
+        for (const p of choice.placements.slice(0, cfg.branch)) {
+          const grid = cloneGrid(state.grid);
+          // Restaurar Sets después de clonar objetos.
+          for (let r = 0; r < grid.length; r++) {
+            for (let c = 0; c < grid.length; c++) {
+              if (grid[r][c]) grid[r][c].dirs = new Set(state.grid[r][c].dirs);
+            }
+          }
+          const placedWord = place(grid, choice.word, p.row, p.col, p.dir);
+          visit({
+            grid,
+            placed: [...state.placed, placedWord],
+            remaining: state.remaining.filter(w => w !== choice.word),
+          });
+          if (nodes > cfg.nodeLimit) return;
+        }
+      }
+    }
+
+    visit(seed);
+    return { state: best, metrics: bestMetrics };
   }
 
   function build(items, level = 'facil') {
     const cfg = LEVELS[level] || LEVELS.facil;
     const usable = items
-      .filter(w => w?.a && w.a.length >= cfg.minLen && w.a.length <= cfg.maxLen)
-      .filter((w, index, arr) => arr.findIndex(x => x.a === w.a) === index);
+      .filter(w => w?.a && w.a.length >= 3 && w.a.length <= cfg.maxWord)
+      .filter((w, i, arr) => arr.findIndex(x => x.a === w.a) === i);
     if (!usable.length) return null;
 
-    let best = null;
-
-    for (let attempt = 0; attempt < cfg.attempts; attempt++) {
-      const grid = makeGrid(cfg.size);
-      const dirs = makeDirs(cfg.size);
-      const first = pickFirst(usable, cfg, attempt);
-      const firstDir = attempt % 2 ? 'V' : 'H';
-      const firstRow = firstDir === 'H' ? Math.floor(cfg.size / 2) : Math.floor((cfg.size - first.a.length) / 2);
-      const firstCol = firstDir === 'H' ? Math.floor((cfg.size - first.a.length) / 2) : Math.floor(cfg.size / 2);
-      const placed = [place(grid, dirs, first, firstRow, firstCol, firstDir)];
-      const used = new Set([first.a]);
-
-      while (placed.length < cfg.target) {
-        const options = [];
-        for (const word of usable) {
-          if (used.has(word.a)) continue;
-          const placements = candidatePlacements(grid, dirs, placed, word);
-          for (const placement of placements.slice(0, 3)) {
-            options.push({ word, placement, score: placement.score });
-          }
-        }
-
-        if (!options.length) break;
-        options.sort((a, b) => b.score - a.score || Math.random() - 0.5);
-        const topCount = Math.min(level === 'pro' ? 8 : 5, options.length);
-        const choice = options[Math.floor(Math.random() * topCount)];
-        placed.push(place(grid, dirs, choice.word, choice.placement.row, choice.placement.col, choice.placement.dir));
-        used.add(choice.word.a);
-      }
-
-      const score = layoutScore(grid, dirs, placed);
-      if (!best || score > best.score) best = { grid, dirs, words: placed, score, size: cfg.size };
-
-      if (best.words.length >= cfg.target && attempt > Math.floor(cfg.attempts * 0.35)) break;
+    let globalBest = null;
+    const seedCount = Math.min(cfg.seeds, usable.length * 2);
+    for (let seedIndex = 0; seedIndex < seedCount; seedIndex++) {
+      const seed = seedState(usable, cfg, seedIndex);
+      if (!seed) continue;
+      const result = search(seed, cfg);
+      if (!globalBest || result.metrics.score > globalBest.metrics.score) globalBest = result;
+      if (result.state.placed.length >= cfg.target && result.metrics.balance > 0.7 && result.metrics.density > 0.45) break;
     }
 
-    return best ? { grid: best.grid, words: best.words, size: best.size } : null;
+    if (!globalBest) return null;
+    const outGrid = globalBest.state.grid.map(row => row.map(cell => cell?.letter || null));
+    return {
+      grid: outGrid,
+      words: globalBest.state.placed,
+      size: cfg.size,
+      stats: globalBest.metrics,
+    };
   }
 
   return { build };
